@@ -1,0 +1,32 @@
+﻿{
+  "menuSections": [
+    {
+      "icon": "BookOpen",
+      "routeName": "SciencePublishing",
+      "title": "Научные публикации",
+      "list": [
+        {
+          "routeName": "SciencePublishingProfile",
+          "name": "Профиль"
+        },
+        {
+          "routeName": "SciencePublishingSubmit",
+          "name": "Подача работы"
+        },
+        {
+          "routeName": "SciencePublishingDrafts",
+          "name": "Черновики"
+        },
+        {
+          "routeName": "SciencePublishingTasks",
+          "name": "Задачи редакции"
+        },
+        {
+          "routeName": "SciencePublishingAdmin",
+          "name": "Администрирование",
+          "requiresAdministrator": true
+        }
+      ]
+    }
+  ]
+}

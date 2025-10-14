@@ -1,0 +1,261 @@
+<template>
+  <div class="container-fluid py-4 science-submit">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+      <div>
+        <h2 class="page-title mb-1">Подача работы в редакционный контур</h2>
+        <p class="text-muted mb-0">
+          Заполните информацию о материале и приложите файл. После отправки работа поступит главному редактору.
+        </p>
+      </div>
+      <button type="button" class="btn btn-outline-secondary" @click="goBack">
+        Вернуться к профилю
+      </button>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <form class="row g-4" @submit.prevent="submitWork">
+          <div class="col-12 col-xl-6">
+            <label class="form-label">Название дисциплины *</label>
+            <input
+              v-model="form.discipline_name"
+              type="text"
+              class="form-control"
+              required
+              placeholder="Например, Современные образовательные технологии"
+            />
+          </div>
+          <div class="col-12 col-xl-6">
+            <label class="form-label">Тема дисциплины</label>
+            <input
+              v-model="form.discipline_topic"
+              type="text"
+              class="form-control"
+              placeholder="Дополнительное уточнение темы"
+            />
+          </div>
+
+          <div class="col-12 col-md-4">
+            <label class="form-label">Тип публикации *</label>
+            <select v-model="form.publication_kind" class="form-select" required>
+              <option disabled value="">Выберите тип</option>
+              <option v-for="item in publicationKinds" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="col-12 col-md-4" v-if="form.publication_kind === 'method_guidelines'">
+            <label class="form-label">Подтип материалов</label>
+            <select v-model="form.guideline_subtype" class="form-select">
+              <option disabled value="">Выберите подтип</option>
+              <option v-for="item in guidelineSubtypes" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="col-12 col-md-4">
+            <label class="form-label">Форма обучения *</label>
+            <select v-model="form.training_form" class="form-select" required>
+              <option disabled value="">Выберите форму</option>
+              <option v-for="item in trainingForms" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="col-6 col-md-3">
+            <label class="form-label">Год *</label>
+            <input
+              v-model.number="form.year"
+              type="number"
+              min="1900"
+              max="2100"
+              class="form-control"
+              required
+            />
+          </div>
+
+          <div class="col-6 col-md-3">
+            <label class="form-label">Страниц</label>
+            <input
+              v-model.number="form.pages_count"
+              type="number"
+              min="1"
+              class="form-control"
+              placeholder="Количество страниц"
+            />
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label">Автор (если отличается от профиля)</label>
+            <input v-model="form.author_full_name" type="text" class="form-control" />
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Краткое описание</label>
+            <textarea
+              v-model="form.short_description"
+              class="form-control"
+              rows="4"
+              placeholder="Кратко опишите содержание работы"
+            ></textarea>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Файл публикации *</label>
+            <input class="form-control" type="file" @change="onFileChange" required />
+            <div class="form-text">
+              Допустимые форматы: PDF, DOCX, ZIP. Максимальный размер определяется настройками сервера.
+            </div>
+          </div>
+
+          <div class="col-12 text-end">
+            <button type="submit" class="btn btn-primary" :disabled="isSubmitting">
+              <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-1"></span>
+              Отправить
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { useToast } from 'vue-toastification';
+
+import { sciencePublishingAPI } from '@/modules/science-publishing/js/science-publishing.js';
+
+const router = useRouter();
+const toast = useToast();
+
+const publicationKinds = [
+  { value: 'method_guidelines', label: 'Методические рекомендации' },
+  { value: 'lab_practicum', label: 'Лабораторный практикум' },
+  { value: 'textbook', label: 'Учебник' },
+  { value: 'monograph', label: 'Монография' },
+  { value: 'article', label: 'Статья' },
+  { value: 'theses', label: 'Тезисы' },
+];
+
+const guidelineSubtypes = [
+  { value: 'coursework', label: 'Курсовая работа' },
+  { value: 'laboratory', label: 'Лабораторная работа' },
+  { value: 'practical', label: 'Практическое пособие' },
+];
+
+const trainingForms = [
+  { value: 'full_time', label: 'Очная' },
+  { value: 'part_time', label: 'Заочная' },
+  { value: 'mixed', label: 'Очно-заочная' },
+];
+
+const form = reactive({
+  discipline_name: '',
+  discipline_topic: '',
+  publication_kind: '',
+  guideline_subtype: '',
+  training_form: '',
+  year: new Date().getFullYear(),
+  pages_count: null,
+  author_full_name: '',
+  short_description: '',
+});
+
+const documentFile = ref(null);
+const isSubmitting = ref(false);
+
+const showGuidelineSubtype = computed(() => form.publication_kind === 'method_guidelines');
+
+watch(
+  () => form.publication_kind,
+  (value) => {
+    if (value !== 'method_guidelines') {
+      form.guideline_subtype = '';
+    }
+  }
+);
+
+const onFileChange = (event) => {
+  const files = event.target.files;
+  documentFile.value = files && files[0] ? files[0] : null;
+};
+
+const resetForm = () => {
+  Object.assign(form, {
+    discipline_name: '',
+    discipline_topic: '',
+    publication_kind: '',
+    guideline_subtype: '',
+    training_form: '',
+    year: new Date().getFullYear(),
+    pages_count: null,
+    author_full_name: '',
+    short_description: '',
+  });
+  documentFile.value = null;
+};
+
+const goBack = () => {
+  router.push({ name: 'SciencePublishingProfile' });
+};
+
+const submitWork = async () => {
+  if (!form.discipline_name || !form.publication_kind || !form.training_form || !form.year) {
+    toast.error('Заполните обязательные поля.');
+    return;
+  }
+  if (!documentFile.value) {
+    toast.error('Приложите файл публикации.');
+    return;
+  }
+
+  isSubmitting.value = true;
+  try {
+    const payload = { ...form };
+    if (!payload.pages_count) {
+      delete payload.pages_count;
+    } else {
+      payload.pages_count = Number(payload.pages_count);
+    }
+    payload.year = Number(payload.year);
+    payload.document = documentFile.value;
+
+    await sciencePublishingAPI.createWork(payload);
+    toast.success('Работа отправлена в редакционный контур.');
+    resetForm();
+    router.push({ name: 'SciencePublishingProfile' });
+  } catch (error) {
+    toast.error(error?.message || 'Не удалось отправить работу.');
+  } finally {
+    isSubmitting.value = false;
+  }
+};
+</script>
+
+<style scoped lang="scss">
+.science-submit {
+  .page-title {
+    font-size: 1.875rem;
+    font-weight: 600;
+  }
+
+  .card {
+    border-radius: 16px;
+  }
+
+  .form-label {
+    font-weight: 600;
+  }
+
+  .btn {
+    min-width: 140px;
+  }
+}
+</style>
+
+
