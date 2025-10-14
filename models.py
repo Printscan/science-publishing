@@ -1,4 +1,7 @@
+import uuid
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -13,37 +16,64 @@ class EditorialRole(models.Model):
         REVIEWER = 'reviewer', 'Рецензент'
 
     code = models.CharField(
-        'Системный код',
+        'Код роли',
         max_length=32,
         choices=Code.choices,
         unique=True,
-        help_text='Фиксированное значение, используемое в логике системы.'
+        help_text='Уникальный символьный код роли, используется в проверках прав.'
     )
     name = models.CharField(
         'Название',
         max_length=255,
         unique=True,
-        help_text='Человекочитаемое имя роли.'
+        help_text='Отображаемое наименование роли.'
     )
     description = models.TextField(
         'Описание',
         blank=True,
         default='',
-        help_text='Дополнительная информация для администраторов.'
+        help_text='Дополнительная информация о назначении роли.'
     )
 
     class Meta:
-        verbose_name = 'Роль издательства'
-        verbose_name_plural = 'Роли издательства'
+        verbose_name = 'Роль редакционного контура'
+        verbose_name_plural = 'Роли редакционного контура'
         ordering = ['name']
 
     def __str__(self) -> str:
         return self.name
 
 
-class UserProfile(models.Model):
-    """Расширение базового пользователя для научного издательства."""
+class PublicationKind(models.TextChoices):
+    METHOD_GUIDELINES = 'method_guidelines', 'Методические рекомендации'
+    LAB_PRACTICUM = 'lab_practicum', 'Лабораторный практикум'
+    TEXTBOOK = 'textbook', 'Учебник'
+    MONOGRAPH = 'monograph', 'Монография'
+    ARTICLE = 'article', 'Статья'
+    THESES = 'theses', 'Тезисы'
 
+
+class GuidelineSubtype(models.TextChoices):
+    COURSE = 'coursework', 'Курсовая работа'
+    LAB = 'laboratory', 'Лабораторная работа'
+    PRACTICAL = 'practical', 'Практическое пособие'
+
+
+class TrainingForm(models.TextChoices):
+    FULL_TIME = 'full_time', 'Очная'
+    PART_TIME = 'part_time', 'Заочная'
+    MIXED = 'mixed', 'Очно-заочная'
+
+
+class UserProfile(models.Model):
+    """Профиль пользователя модуля научных публикаций."""
+
+    id = models.UUIDField(
+        'Идентификатор',
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -58,18 +88,17 @@ class UserProfile(models.Model):
         verbose_name='Роли'
     )
     display_name = models.CharField(
-        'ФИО',
+        'Отображаемое имя',
         max_length=255,
         blank=True,
         default='',
-        help_text='Отображается в выходных данных и публичных карточках.'
+        help_text='Имя, которое показывается в интерфейсе. Если не заполнено используется ФИО или логин.'
     )
     organization = models.CharField(
         'Организация',
         max_length=255,
         blank=True,
-        default='',
-        help_text='Основное место работы или подразделение.'
+        default=''
     )
     department = models.CharField(
         'Подразделение',
@@ -97,7 +126,7 @@ class UserProfile(models.Model):
     )
     phone = models.CharField(
         'Телефон',
-        max_length=32,
+        max_length=64,
         blank=True,
         default=''
     )
@@ -125,12 +154,12 @@ class UserProfile(models.Model):
         default=''
     )
     biography = models.TextField(
-        'Биография / компетенции',
+        'Биография',
         blank=True,
         default=''
     )
     is_active = models.BooleanField(
-        'Активен в издательстве',
+        'Активен',
         default=True
     )
     created_at = models.DateTimeField(
@@ -143,16 +172,193 @@ class UserProfile(models.Model):
     )
 
     class Meta:
-        verbose_name = 'Профиль участника'
-        verbose_name_plural = 'Профили участников'
+        verbose_name = 'Профиль пользователя'
+        verbose_name_plural = 'Профили пользователей'
         ordering = ['user__last_name', 'user__first_name']
 
     def __str__(self) -> str:
         return self.display_name or self.user.get_full_name() or self.user.get_username()
 
 
+class Work(models.Model):
+    """Научная работа пользователя со всеми редакционными атрибутами."""
+
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Черновик'
+        PENDING_CHIEF_REVIEW = 'pending_chief_review', 'Ожидает главного редактора'
+        IN_EDITOR_REVIEW = 'in_editor_review', 'В работе у редактора'
+        WAITING_FOR_AUTHOR = 'waiting_for_author', 'Ожидает правок автора'
+        READY_FOR_CHIEF_APPROVAL = 'ready_for_chief_approval', 'Ожидает утверждения главреда'
+        PUBLISHED = 'published', 'Опубликована'
+
+    id = models.UUIDField(
+        'Идентификатор',
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='works',
+        verbose_name='Профиль автора'
+    )
+    author_full_name = models.CharField(
+        'Полное имя автора',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    publication_kind = models.CharField(
+        'Тип публикации',
+        max_length=32,
+        choices=PublicationKind.choices
+    )
+    guideline_subtype = models.CharField(
+        'Подтип методических материалов',
+        max_length=32,
+        choices=GuidelineSubtype.choices,
+        blank=True,
+        default='',
+        help_text='Используется для публикаций типа "Методические рекомендации".'
+    )
+    discipline_name = models.CharField(
+        'Название дисциплины',
+        max_length=255
+    )
+    discipline_topic = models.CharField(
+        'Тема дисциплины',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    rector_name = models.CharField(
+        'Ректор',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    year = models.PositiveIntegerField('Год')
+    pages_count = models.PositiveIntegerField(
+        'Количество страниц',
+        default=0
+    )
+    udc = models.CharField(
+        'УДК',
+        max_length=64,
+        blank=True,
+        default=''
+    )
+    bbk = models.CharField(
+        'ББК',
+        max_length=64,
+        blank=True,
+        default=''
+    )
+    developers = models.CharField(
+        'Разработчики',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    scientific_editor = models.CharField(
+        'Научный редактор',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    computer_layout = models.CharField(
+        'Компьютерная верстка',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    co_authors = models.CharField(
+        'Соавторы',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    training_form = models.CharField(
+        'Форма обучения',
+        max_length=32,
+        choices=TrainingForm.choices
+    )
+    faculty = models.CharField(
+        'Факультет',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    department = models.CharField(
+        'Кафедра',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    short_description = models.TextField(
+        'Краткое описание',
+        blank=True,
+        default=''
+    )
+    document = models.FileField(
+        'Файл публикации',
+        upload_to='science_publishing/works/%Y/%m/',
+        blank=True,
+        null=True
+    )
+    status = models.CharField(
+        'Статус',
+        max_length=64,
+        choices=Status.choices,
+        default=Status.PENDING_CHIEF_REVIEW,
+        db_index=True
+    )
+    current_editor = models.ForeignKey(
+        UserProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_works',
+        verbose_name='Ответственный редактор'
+    )
+    published_at = models.DateTimeField(
+        'Дата публикации',
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(
+        'Создана',
+        auto_now_add=True
+    )
+    updated_at = models.DateTimeField(
+        'Обновлена',
+        auto_now=True
+    )
+
+    class Meta:
+        verbose_name = 'Работа'
+        verbose_name_plural = 'Работы'
+        ordering = ['-year', 'discipline_name']
+        indexes = [
+            models.Index(fields=['profile', 'year']),
+            models.Index(fields=['publication_kind']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.discipline_name} ({self.year})'
+
+    def clean(self) -> None:
+        super().clean()
+        if self.guideline_subtype and self.publication_kind != PublicationKind.METHOD_GUIDELINES:
+            raise ValidationError({
+                'guideline_subtype': 'Выберите подтип только для публикаций типа «Методические рекомендации».',
+            })
+
+
 class UserProfileRole(models.Model):
-    """Фиксация ролей пользователя с дополнительными атрибутами."""
+    """Назначение роли пользователю."""
 
     profile = models.ForeignKey(
         UserProfile,
@@ -172,8 +378,7 @@ class UserProfileRole(models.Model):
         null=True,
         blank=True,
         related_name='science_publishing_assigned_roles',
-        verbose_name='Назначено пользователем',
-        help_text='Кто выдал доступ; пусто, если назначение автоматическое.'
+        verbose_name='Назначил'
     )
     assigned_at = models.DateTimeField(
         'Дата назначения',
@@ -182,8 +387,7 @@ class UserProfileRole(models.Model):
     expires_at = models.DateTimeField(
         'Срок действия',
         null=True,
-        blank=True,
-        help_text='Если указано, роль будет истекать в заданную дату.'
+        blank=True
     )
     notes = models.TextField(
         'Комментарии',
@@ -192,10 +396,127 @@ class UserProfileRole(models.Model):
     )
 
     class Meta:
-        verbose_name = 'Роль профиля'
-        verbose_name_plural = 'Роли профиля'
+        verbose_name = 'Назначение роли'
+        verbose_name_plural = 'Назначения ролей'
         unique_together = [('profile', 'role')]
         ordering = ['profile__user__last_name', 'role__name']
 
     def __str__(self) -> str:
-        return f'{self.profile} — {self.role}'
+        return f'{self.profile} → {self.role}'
+
+
+class EditorialTask(models.Model):
+    """Задача, сопровождающая редакционный процесс работы."""
+
+    class Status(models.TextChoices):
+        NEW = 'new', 'Новая'
+        IN_PROGRESS = 'in_progress', 'В работе'
+        DONE = 'done', 'Завершена'
+        ARCHIVED = 'archived', 'Архивирована'
+
+    id = models.UUIDField(
+        'Идентификатор',
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    work = models.ForeignKey(
+        Work,
+        on_delete=models.CASCADE,
+        related_name='tasks',
+        verbose_name='Работа'
+    )
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='science_publishing_sent_tasks',
+        verbose_name='Отправитель'
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='science_publishing_received_tasks',
+        verbose_name='Получатель'
+    )
+    subject = models.CharField(
+        'Тема',
+        max_length=255,
+        default='Редакционная задача'
+    )
+    message = models.TextField(
+        'Комментарий',
+        blank=True,
+        default=''
+    )
+    status = models.CharField(
+        'Статус',
+        max_length=32,
+        choices=Status.choices,
+        default=Status.NEW
+    )
+    created_at = models.DateTimeField(
+        'Создана',
+        auto_now_add=True
+    )
+    updated_at = models.DateTimeField(
+        'Обновлена',
+        auto_now=True
+    )
+
+    class Meta:
+        verbose_name = 'Редакционная задача'
+        verbose_name_plural = 'Редакционные задачи'
+        ordering = ['-created_at']
+        unique_together = [('work', 'recipient')]
+        indexes = [
+            models.Index(fields=['recipient', 'status']),
+            models.Index(fields=['work', 'status']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.subject} → {self.recipient}'
+
+
+class EditorialTaskMessage(models.Model):
+    """Сообщение внутри задачи (история общения)."""
+
+    task = models.ForeignKey(
+        EditorialTask,
+        on_delete=models.CASCADE,
+        related_name='messages',
+        verbose_name='Задача'
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='science_publishing_task_messages',
+        verbose_name='Автор'
+    )
+    content = models.TextField(
+        'Сообщение'
+    )
+    metadata = models.JSONField(
+        'Дополнительные данные',
+        blank=True,
+        default=dict,
+        help_text='Структурированные сведения об изменениях, вложениях и прочем контексте.'
+    )
+    is_system = models.BooleanField(
+        'Системное сообщение',
+        default=False,
+        help_text='Помечает автоматические записи, созданные системой.'
+    )
+    created_at = models.DateTimeField(
+        'Создано',
+        auto_now_add=True
+    )
+
+    class Meta:
+        verbose_name = 'Сообщение задачи'
+        verbose_name_plural = 'Сообщения задач'
+        ordering = ['created_at']
+
+    def __str__(self) -> str:
+        return f'Сообщение {self.author} ({self.created_at:%Y-%m-%d %H:%M})'

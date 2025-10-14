@@ -6,3 +6,4 @@ class SciencePublishingConfig(AppConfig):
     name = 'src.modules.science_publishing'
     label = 'science_publishing'
     verbose_name = 'Управление научными публикациями'
+    auto_api = True
