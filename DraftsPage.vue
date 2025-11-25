@@ -173,15 +173,21 @@
                 </div>
               </div>
               <div class="col-12">
-                <label class="form-label" for="correction_message">Комментарий для редактора *</label>
+                <label class="form-label d-flex align-items-center gap-1" for="correction_message">
+                  Комментарий для редактора
+                  <span v-if="isAwaitingCorrections" class="text-danger">*</span>
+                </label>
                 <textarea
                   id="correction_message"
                   v-model="form.correction_message"
                   class="form-control"
                   rows="3"
-                  placeholder="Опишите, что поменяли и почему"
-                  required
+                  placeholder="Расскажите, что изменили в работе"
+                  :required="isAwaitingCorrections"
                 ></textarea>
+                <div v-if="!isAwaitingCorrections" class="form-text text-muted">
+                  Комментарий нужен только при ответе на замечания редактора.
+                </div>
               </div>
               <div class="col-12 text-end">
                 <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -198,127 +204,195 @@
                 <span class="visually-hidden">Загрузка…</span>
               </div>
             </div>
-            <div v-else>
-              <div v-if="!taskHistory.length" class="text-muted text-center">
+            <div v-else class="draft-chat">
+              <div v-if="!orderedChatTasks.length" class="draft-chat__empty text-muted text-center py-5">
                 История переписки пока пуста.
               </div>
               <template v-else>
-                <div class="conversation-timeline">
-                  <div v-for="task in taskHistory" :key="task.id" class="timeline-item border rounded p-3 mb-3">
-                    <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
-                      <div>
-                        <div class="fw-semibold">{{ task.subject }}</div>
-                        <div class="small text-muted">
-                          {{ formatTimelineParticipant(task.sender_username) }} &rarr;
-                          {{ formatTimelineParticipant(task.recipient_username) }}
-                        </div>
-                      </div>
-                      <div class="text-end">
-                        <span class="badge text-bg-secondary">{{ task.status_display }}</span>
-                        <div class="small text-muted">{{ formatDateTime(task.created_at) }}</div>
-                      </div>
+                <div class="task-chat">
+                  <div
+                    v-for="task in orderedChatTasks"
+                    :key="task.id"
+                    class="task-chat__conversation"
+                  >
+                    <div class="task-chat__timeline">
+                      <span class="task-chat__dot" :class="taskStatusAccentClass(task.status)"></span>
                     </div>
-                    <div v-if="task.message" class="mb-3">
-                      {{ task.message }}
-                    </div>
-                    <div v-if="task.messages?.length" class="timeline-messages">
-                      <div
-                        v-for="msg in task.messages"
-                        :key="msg.id"
-                        :class="messageRowClass(msg)"
-                      >
-                        <div :class="messageBubbleClass(msg)">
-                          <div :class="messageHeaderClass(msg)">
-                            <div>
-                              <strong>{{ msg.author_display_name || msg.author_username || '?????' }}</strong>
-                              <template v-if="msg.is_system">
-                                <span class="badge text-bg-dark ms-1">?????</span>
-                              </template>
-                              <template v-else>
-                                <span
-                                  v-for="role in msg.author_roles"
-                                  :key="`${msg.id}-${role.code}`"
-                                  class="badge text-bg-primary-subtle text-primary ms-1"
-                                >
-                                  {{ role.name }}
-                                </span>
-                              </template>
-                            </div>
-                            <span>{{ formatDateTime(msg.created_at) }}</span>
+                    <div class="task-chat__content">
+                      <header class="task-chat__header">
+                        <div>
+                          <div class="task-chat__subject">{{ task.subject || 'Без темы' }}</div>
+                          <div class="task-chat__meta text-muted small">
+                            <span>{{ taskSenderName(task) }}</span>
+                            <span class="task-chat__divider" aria-hidden="true">•</span>
+                            <span>{{ formatDateTime(task.created_at) }}</span>
                           </div>
-                          <div v-if="msg.content" class="message-body mt-2">{{ msg.content }}</div>
-                          <div v-if="hasChangeDetails(msg)" class="message-changes mt-2">
-                            <button
-                              class="btn btn-sm btn-link px-0"
-                              type="button"
-                              @click="toggleMessageDetails(msg.id)"
-                            >
-                              <span v-if="isMessageExpanded(msg.id)">*?????????* - ?????</span>
-                              <span v-else>*?????????* - ??????</span>
-                            </button>
-                            <div v-if="isMessageExpanded(msg.id)" class="message-change-panel mt-2">
-                              <ul v-if="msg.changes?.length" class="list-unstyled small mb-2">
-                                <li
-                                  v-for="change in msg.changes"
-                                  :key="`${msg.id}-${change.field || change.label || change.old}`"
-                                  class="message-change-entry"
-                                >
-                                  <div class="fw-semibold">{{ change.label }}</div>
-                                  <div class="small text-muted">
-                                    {{ formatChangeValue(change.old) }}
-                                    <span class="mx-1">&rarr;</span>
-                                    {{ formatChangeValue(change.new) }}
-                                  </div>
+                        </div>
+                        <span class="badge task-chat__status" :class="taskStatusBadgeClass(task.status)">
+                          {{ formatStatus(task.status) }}
+                        </span>
+                      </header>
+
+                      <p v-if="task.message" class="task-chat__lead">
+                        {{ task.message }}
+                      </p>
+
+                      <div v-if="task.messages && task.messages.length" class="chat-thread">
+                        <article
+                          v-for="message in task.messages"
+                          :key="message.id || message.created_at"
+                          :class="['chat-entry', messageAlignmentClass(message)]"
+                        >
+                          <div class="chat-entry__heading">
+                            <div class="chat-entry__name">{{ messageAuthorName(message) }}</div>
+                            <span class="chat-entry__time text-muted small">{{ formatDateTime(message.created_at) }}</span>
+                          </div>
+                          <div class="chat-entry__body">
+                            <p v-if="message.content" class="mb-2">{{ message.content }}</p>
+                            <div v-if="messageHasChanges(message)" class="chat-entry__changes">
+                              <div class="chat-entry__subtitle text-muted small">Изменения</div>
+                              <ul class="chat-change-list">
+                                <li v-for="change in message.changes" :key="change.field || change.name || change.label">
+                                  <strong>{{ changeLabel(change) }}:</strong>
+                                  <span class="text-muted ms-1">
+                                    было {{ formatChangeValue(changeOld(change)) }}
+                                  </span>
+                                  <span class="ms-1">
+                                    стало {{ formatChangeValue(changeNew(change)) }}
+                                  </span>
                                 </li>
                               </ul>
-                              <div v-if="msg.attachments?.length" class="message-attachments small">
-                                <div class="fw-semibold">????????:</div>
-                                <ul class="list-unstyled mb-0">
-                                  <li
-                                    v-for="file in msg.attachments"
-                                    :key="`${msg.id}-${file.field || file.url || file.name || file.label}`"
-                                  >
-                                    <a
-                                      v-if="file.absolute_url || file.url"
-                                      :href="file.absolute_url || file.url"
-                                      target="_blank"
-                                      rel="noopener"
-                                    >
-                                      {{ file.name || file.label || '????' }}
-                                    </a>
-                                    <span v-else>{{ file.name || file.label || '????' }}</span>
-                                  </li>
-                                </ul>
-                              </div>
                             </div>
+                            <div v-if="messageHasAttachments(message)" class="chat-entry__attachments">
+                              <div class="chat-entry__subtitle text-muted small">Вложения</div>
+                              <ul class="chat-attachment-list">
+                                <li
+                                  v-for="attachment in message.attachments"
+                                  :key="attachment.url || attachment.absolute_url || attachment.name"
+                                >
+                                  <a
+                                    v-if="attachment.absolute_url || attachment.url"
+                                    :href="attachment.absolute_url || attachment.url"
+                                    target="_blank"
+                                    rel="noopener"
+                                  >
+                                    {{ attachment.name || attachment.label || 'Файл' }}
+                                  </a>
+                                  <span v-else>{{ attachment.name || attachment.label || 'Файл' }}</span>
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
+                        </article>
+                      </div>
+
+                      <div v-if="draftTaskSummaries[task.id]" class="chat-entry chat-entry--summary">
+                        <div class="chat-entry__heading">
+                          <div class="chat-entry__name">{{ taskRecipientName(task) }}</div>
+                          <span class="chat-entry__time text-muted small">
+                            {{ formatDateTime(task.closed_at || task.updated_at) }}
+                          </span>
+                        </div>
+                        <div class="chat-entry__body">
+                          <p v-if="draftTaskSummaries[task.id].note" class="mb-2">
+                            {{ draftTaskSummaries[task.id].note }}
+                          </p>
+                          <div
+                            v-if="draftTaskSummaries[task.id].changes && draftTaskSummaries[task.id].changes.length"
+                            class="chat-entry__changes"
+                          >
+                            <div class="chat-entry__subtitle text-muted small">Итоги</div>
+                            <ul class="chat-change-list">
+                              <li
+                                v-for="change in draftTaskSummaries[task.id].changes"
+                                :key="change.field || change.name || change.label"
+                              >
+                                <strong>{{ changeLabel(change) }}:</strong>
+                                <span class="text-muted ms-1">
+                                  было {{ formatChangeValue(changeOld(change)) }}
+                                </span>
+                                <span class="ms-1">
+                                  стало {{ formatChangeValue(changeNew(change)) }}
+                                </span>
+                              </li>
+                            </ul>
+                          </div>
+                          <div
+                            v-if="draftTaskSummaries[task.id].attachments && draftTaskSummaries[task.id].attachments.length"
+                            class="chat-entry__attachments"
+                          >
+                            <div class="chat-entry__subtitle text-muted small">Файлы</div>
+                            <ul class="chat-attachment-list">
+                              <li
+                                v-for="attachment in draftTaskSummaries[task.id].attachments"
+                                :key="attachment.url || attachment.absolute_url || attachment.name"
+                              >
+                                <a
+                                  v-if="attachment.absolute_url || attachment.url"
+                                  :href="attachment.absolute_url || attachment.url"
+                                  target="_blank"
+                                  rel="noopener"
+                                >
+                                  {{ attachment.name || attachment.label || 'Файл' }}
+                                </a>
+                                <span v-else>{{ attachment.name || attachment.label || 'Файл' }}</span>
+                              </li>
+                            </ul>
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                <form class="chat-reply mt-3" @submit.prevent="sendMessage">
-                  <div class="row g-2">
+    </div>
+
+                <form class="draft-chat__composer" @submit.prevent="sendMessage">
+                  <div class="row g-3">
                     <div class="col-12 col-md-4">
-                      <label class="form-label">Задача для ответа</label>
-                      <select v-model="activeTaskId" class="form-select">
-                        <option v-for="task in taskHistory" :key="task.id" :value="task.id">
-                          {{ task.subject }}
+                      <label class="form-label" for="draft-task-select">Задача</label>
+                      <select id="draft-task-select" v-model="activeTaskId" class="form-select">
+                        <option
+                          v-for="task in orderedChatTasks"
+                          :key="task.id"
+                          :value="task.id"
+                        >
+                          {{ task.subject || 'Без темы' }}
                         </option>
                       </select>
                     </div>
                     <div class="col-12 col-md-8">
-                      <label class="form-label">Сообщение</label>
+                      <label class="form-label" for="draft-message-input">Сообщение</label>
                       <textarea
+                        id="draft-message-input"
                         v-model="messageDraft"
-                        rows="2"
                         class="form-control"
-                        placeholder="Напишите ответ"
+                        rows="2"
+                        placeholder="Напишите ответ редакции"
                       ></textarea>
                     </div>
-                    <div class="col-12 text-end">
-                      <button class="btn btn-primary" :disabled="sending || !messageDraft.trim() || !activeTask">
-                        <span v-if="sending" class="spinner-border spinner-border-sm me-2" />
+                    <div class="col-12 d-flex justify-content-end gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary"
+                        :disabled="closing || sending || !canCloseActiveTask"
+                        @click="closeActiveTask"
+                      >
+                        <span
+                          v-if="closing"
+                          class="spinner-border spinner-border-sm me-2"
+                          role="status"
+                        ></span>
+                        Закрыть задачу
+                      </button>
+                      <button
+                        type="submit"
+                        class="btn btn-primary"
+                        :disabled="sending || !messageDraft.trim() || !activeTask"
+                      >
+                        <span
+                          v-if="sending"
+                          class="spinner-border spinner-border-sm me-2"
+                          role="status"
+                        ></span>
                         Отправить
                       </button>
                     </div>
@@ -392,7 +466,7 @@ const error = ref('');
 
 const selectedWork = ref(null);
 const tab = ref('edit');
-
+const isAwaitingCorrections = computed(() => selectedWork.value?.status === 'waiting_for_author');
 const form = reactive({
   rector_name: '',
   pages_count: null,
@@ -424,7 +498,7 @@ const taskHistory = ref([]);
 const activeTaskId = ref(null);
 const messageDraft = ref('');
 const sending = ref(false);
-const expandedMessages = ref(new Set());
+const closing = ref(false);
 const currentProfile = ref(null);
 const profileLoading = ref(true);
 
@@ -442,6 +516,16 @@ const shortDescriptionRemaining = computed(
 );
 
 const currentUsername = computed(() => currentProfile.value?.user?.username || null);
+const canCloseActiveTask = computed(() => {
+  const task = activeTask.value;
+  if (!task || task.closed_at) return false;
+  const userId = currentProfile.value?.user?.id || currentProfile.value?.user_id;
+  if (userId && String(task.recipient) === String(userId)) return true;
+  if (task.recipient_username && currentUsername.value) {
+    return task.recipient_username === currentUsername.value;
+  }
+  return false;
+});
 
 watch(
   () => form.publication_kind,
@@ -464,7 +548,6 @@ watch(
 watch(
   taskHistory,
   (tasks) => {
-    expandedMessages.value = new Set();
     if (!Array.isArray(tasks) || tasks.length === 0) {
       activeTaskId.value = null;
       return;
@@ -480,49 +563,94 @@ function formatStatus(status) {
   return STATUS_LABELS[status] || status || '-';
 }
 
-function formatTimelineParticipant(username) {
-  return username || 'Система';
-}
-
 const activeTask = computed(() => taskHistory.value.find((task) => task.id === activeTaskId.value) || null);
+const orderedChatTasks = computed(() => {
+  const list = Array.isArray(taskHistory.value) ? [...taskHistory.value] : [];
+  return list.sort((a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0));
+});
+const draftTaskSummaries = computed(() => {
+  const summaries = {};
+  (taskHistory.value || []).forEach((task) => {
+    const summary = buildTaskSummary(task);
+    if (summary) {
+      summaries[task.id] = summary;
+    }
+  });
+  return summaries;
+});
 
-function isOwnMessage(message) {
-  if (!message || message.is_system || !currentProfile.value?.user?.username) {
-    return false;
+function taskStatusBadgeClass(status) {
+  switch (status) {
+    case 'new':
+      return 'text-bg-secondary';
+    case 'in_progress':
+    case 'in_editor_review':
+      return 'text-bg-warning text-dark';
+    case 'done':
+    case 'ready_for_chief_approval':
+      return 'text-bg-success';
+    case 'waiting_for_author':
+      return 'text-bg-info';
+    case 'archived':
+      return 'text-bg-dark';
+    default:
+      return 'text-bg-secondary';
   }
-  return message.author_username === currentProfile.value.user.username;
 }
 
-function messageRowClass(message) {
-  if (message.is_system) {
-    return 'message-row message-row-system';
+function taskStatusAccentClass(status) {
+  switch (status) {
+    case 'done':
+    case 'ready_for_chief_approval':
+      return 'status-accent--success';
+    case 'in_progress':
+    case 'in_editor_review':
+    case 'pending_chief_review':
+      return 'status-accent--progress';
+    case 'waiting_for_author':
+      return 'status-accent--warning';
+    case 'archived':
+      return 'status-accent--muted';
+    case 'new':
+    default:
+      return 'status-accent--info';
   }
-  return isOwnMessage(message) ? 'message-row message-row-outgoing' : 'message-row message-row-incoming';
 }
 
-function messageBubbleClass(message) {
-  if (message.is_system) {
-    return 'message-bubble message-bubble-system';
-  }
-  return isOwnMessage(message)
-    ? 'message-bubble message-bubble-outgoing'
-    : 'message-bubble message-bubble-incoming';
+function taskSenderName(task) {
+  if (!task) return 'Система';
+  return task.sender_display_name || task.sender_username || 'Система';
 }
 
-function messageHeaderClass(message) {
-  const base = ['message-header', 'small', 'text-muted', 'd-flex', 'gap-2', 'flex-wrap'];
-  if (message.is_system) {
-    base.push('justify-content-center', 'text-center');
-  } else if (isOwnMessage(message)) {
-    base.push('justify-content-end', 'text-end');
-  } else {
-    base.push('justify-content-between');
+function taskRecipientName(task) {
+  if (!task) return 'Система';
+  return task.recipient_display_name || task.recipient_username || 'Система';
+}
+
+function messageAlignmentClass(message) {
+  if (!message) return 'chat-entry--neutral';
+  if (message.is_system) return 'chat-entry--system';
+  const username = currentProfile.value?.user?.username;
+  if (username && message.author_username === username) {
+    return 'chat-entry--recipient';
   }
-  return base.join(' ');
+  return 'chat-entry--sender';
+}
+
+function messageAuthorName(message) {
+  return message?.author_display_name || message?.author_username || '—';
+}
+
+function messageHasChanges(message) {
+  return Array.isArray(message?.changes) && message.changes.length > 0;
+}
+
+function messageHasAttachments(message) {
+  return Array.isArray(message?.attachments) && message.attachments.length > 0;
 }
 function formatChangeValue(value) {
   if (value === null || value === undefined || value === '') {
-    return '-';
+    return '—';
   }
   if (typeof value === 'string') {
     return value;
@@ -537,22 +665,37 @@ function formatChangeValue(value) {
   }
 }
 
-function hasChangeDetails(message) {
-  return Boolean((message?.changes?.length || 0) || (message?.attachments?.length || 0));
+function changeLabel(change) {
+  return change?.label || change?.field_display || change?.name || change?.field || 'Поле';
 }
 
-function isMessageExpanded(id) {
-  return expandedMessages.value.has(id);
+function changeOld(change) {
+  if (!change) return '';
+  return change.old ?? change.old_value ?? change.was ?? '';
 }
 
-function toggleMessageDetails(id) {
-  const next = new Set(expandedMessages.value);
-  if (next.has(id)) {
-    next.delete(id);
-  } else {
-    next.add(id);
+function changeNew(change) {
+  if (!change) return '';
+  return change.new ?? change.new_value ?? change.became ?? '';
+}
+
+function buildTaskSummary(task) {
+  if (!task) return null;
+  const payload = task.payload || {};
+  const note = payload.note || '';
+  const changes = Array.isArray(payload.changes) ? payload.changes : [];
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const hasDetails = Boolean(note) || changes.length > 0 || attachments.length > 0;
+  if (!task.closed_at || !hasDetails) {
+    return null;
   }
-  expandedMessages.value = next;
+  return {
+    note,
+    changes,
+    attachments,
+    action: payload.action || null,
+    workStatus: payload.work_status || null,
+  };
 }
 
 function documentUrl(work) {
@@ -635,7 +778,6 @@ function selectWork(work) {
   tab.value = 'edit';
   taskHistory.value = [];
   activeTaskId.value = null;
-  expandedMessages.value = new Set();
   messageDraft.value = '';
   fillFormFromWork(work);
 }
@@ -647,33 +789,64 @@ function onFile(event) {
 
 async function saveCorrections() {
   if (!selectedWork.value) return;
+
+  const awaitingCorrections = isAwaitingCorrections.value;
   const message = form.correction_message?.trim();
-  if (!message) {
-    toast.error('Укажите комментарий для редактора перед отправкой.');
+
+  const payload = {};
+  editableFields.forEach((key) => {
+    const value = form[key];
+    if (value !== undefined && value !== null && value !== '') {
+      payload[key] = value;
+    }
+  });
+
+  if (form.document) {
+    payload.document = form.document;
+  }
+
+  const hasDataChanges = Object.keys(payload).length > 0;
+
+  if (!awaitingCorrections && !hasDataChanges) {
+    toast.info('Изменения для сохранения отсутствуют.');
+    return;
+  }
+
+  if (awaitingCorrections && !message) {
+    toast.error('Комментарий обязателен для ответа редактору.');
+    return;
+  }
+
+  if (awaitingCorrections && !hasDataChanges) {
+    toast.error('Добавьте файл или обновите данные перед отправкой исправлений.');
     return;
   }
 
   saving.value = true;
   try {
-    const payload = {};
-    editableFields.forEach((key) => {
-      const value = form[key];
-      if (value !== undefined && value !== null && value !== '') {
-        payload[key] = value;
-      }
-    });
-
-    if (form.document) {
-      payload.document = form.document;
+    const workId = selectedWork.value.id;
+    if (awaitingCorrections) {
+      payload.message = message;
+      await sciencePublishingAPI.submitWorkCorrections(workId, payload);
+      toast.success('Исправления отправлены.');
+    } else {
+      await sciencePublishingAPI.updateWork(workId, payload);
+      toast.success('Черновик обновлён.');
     }
-    payload.message = message;
-
-    await sciencePublishingAPI.submitWorkCorrections(selectedWork.value.id, payload);
-    toast.success('Исправления отправлены.');
     form.correction_message = '';
+    form.document = null;
+    if (fileInput.value) {
+      fileInput.value.value = '';
+    }
     await loadWorks();
+    if (tab.value === 'chat' && selectedWork.value) {
+      await openChat(activeTaskId.value);
+    }
   } catch (error_) {
-    toast.error(error_?.message || 'Не удалось сохранить исправления.');
+    const fallback = awaitingCorrections
+      ? 'Не удалось отправить исправления.'
+      : 'Не удалось обновить черновик.';
+    toast.error(error_?.message || fallback);
   } finally {
     saving.value = false;
   }
@@ -708,8 +881,6 @@ async function openChat(preferredTaskId = null) {
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
     taskHistory.value = normalized;
-    expandedMessages.value = new Set();
-
     const fallbackId = preferredTaskId ?? activeTaskId.value;
     if (fallbackId && normalized.some((task) => task.id === fallbackId)) {
       activeTaskId.value = fallbackId;
@@ -750,6 +921,27 @@ async function sendMessage() {
   }
 }
 
+async function closeActiveTask() {
+  const task = activeTask.value;
+  if (!task || !canCloseActiveTask.value) return;
+  closing.value = true;
+  try {
+    const payload = {};
+    const note = messageDraft.value.trim();
+    if (note) {
+      payload.message = note;
+    }
+    await sciencePublishingAPI.closeTask(task.id, payload);
+    messageDraft.value = '';
+    await openChat(task.id);
+    toast.success('Задача закрыта.');
+  } catch (error_) {
+    toast.error(error_?.message || 'Не удалось закрыть задачу.');
+  } finally {
+    closing.value = false;
+  }
+}
+
 onMounted(async () => {
   await fetchCurrentProfile();
   await loadWorks();
@@ -766,116 +958,239 @@ onMounted(async () => {
   color: var(--bs-primary);
   border-color: var(--bs-primary);
 }
-
-.conversation-timeline {
-  max-height: 420px;
-  overflow-y: auto;
-}
-
-.timeline-item {
-  background: var(--bs-body-bg);
-}
-
-.timeline-messages {
-  margin-top: 1rem;
-}
-
-.timeline-message {
-  background: var(--bs-body-bg);
-  border: 1px solid var(--bs-border-color);
-}
-
-.conversation-messages {
+.draft-chat {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  max-height: 320px;
-  overflow-y: auto;
-  padding-right: 0.5rem;
+  gap: 2rem;
 }
 
-.message-row {
+.draft-chat__empty {
+  border: 1px dashed var(--bs-border-color);
+  border-radius: 1.25rem;
+}
+
+.task-chat {
   display: flex;
-  margin-bottom: 0.75rem;
+  flex-direction: column;
+  gap: 2rem;
 }
 
-.message-row:last-child {
-  margin-bottom: 0;
+.task-chat__conversation {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 1.5rem;
+  position: relative;
 }
 
-.message-row-incoming {
-  justify-content: flex-start;
-}
-
-.message-row-outgoing {
-  justify-content: flex-end;
-}
-
-.message-row-system {
+.task-chat__timeline {
+  position: relative;
+  display: flex;
   justify-content: center;
 }
 
-.message-bubble {
-  max-width: min(420px, 100%);
-  padding: 0.75rem;
-  border-radius: 16px;
-  background: var(--bs-light-bg-subtle);
-  border: 1px solid var(--bs-border-color);
+.task-chat__timeline::after {
+  content: '';
+  position: absolute;
+  top: 0.75rem;
+  bottom: -2.5rem;
+  width: 2px;
+  background: rgba(15, 23, 42, 0.08);
 }
 
-.message-bubble-incoming {
-  background: var(--bs-body-bg);
+.task-chat__conversation:last-child .task-chat__timeline::after {
+  display: none;
 }
 
-.message-bubble-outgoing {
-  background: var(--bs-primary-bg-subtle);
-  border-color: var(--bs-primary-border-subtle);
+.task-chat__dot {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 0.25rem;
+  box-shadow: 0 0 0 4px rgba(15, 23, 42, 0.05);
 }
 
-.message-bubble-system {
-  background: var(--bs-dark-bg-subtle);
-  color: var(--bs-body-bg);
-  text-align: center;
+.status-accent--info {
+  background: #0d6efd;
+  box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
 }
 
-.message-header {
-  align-items: center;
+.status-accent--progress {
+  background: #f59f00;
+  box-shadow: 0 0 0 4px rgba(245, 159, 0, 0.18);
 }
 
-.message-author {
+.status-accent--warning {
+  background: #ffa94d;
+  box-shadow: 0 0 0 4px rgba(255, 169, 77, 0.2);
+}
+
+.status-accent--success {
+  background: #198754;
+  box-shadow: 0 0 0 4px rgba(25, 135, 84, 0.18);
+}
+
+.status-accent--muted {
+  background: #adb5bd;
+  box-shadow: 0 0 0 4px rgba(173, 181, 189, 0.2);
+}
+
+.task-chat__content {
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 32px 80px -48px rgba(15, 23, 42, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-chat__content:hover {
+  border-color: rgba(13, 110, 253, 0.35);
+  box-shadow: 0 28px 70px -48px rgba(15, 23, 42, 0.45);
+}
+
+.task-chat__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.task-chat__subject {
+  font-size: 1.1rem;
   font-weight: 600;
+  margin-bottom: 0.35rem;
 }
 
-.message-body {
+.task-chat__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.task-chat__divider {
+  color: rgba(15, 23, 42, 0.25);
+}
+
+.task-chat__status {
+  font-size: 0.875rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+}
+
+.task-chat__lead {
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: rgba(15, 23, 42, 0.85);
   white-space: pre-line;
 }
 
-.message-changes .btn-link {
-  text-decoration: none;
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-entry {
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(248, 249, 252, 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-entry__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.chat-entry__name {
   font-weight: 600;
+  color: rgba(15, 23, 42, 0.85);
 }
 
-.message-change-panel {
-  background: var(--bs-light-bg-subtle);
-  border-radius: 0.75rem;
-  padding: 0.75rem;
+.chat-entry__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.message-change-entry + .message-change-entry {
-  margin-top: 0.5rem;
+.chat-entry__changes,
+.chat-entry__attachments {
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.85rem;
+  background: rgba(248, 249, 252, 0.75);
+  border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
-.message-attachments a {
-  text-decoration: none;
+.chat-entry__subtitle {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
 }
 
-.chat-reply textarea {
+.chat-change-list,
+.chat-attachment-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.chat-entry--sender {
+  border-color: rgba(13, 110, 253, 0.25);
+  background: rgba(13, 110, 253, 0.09);
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.chat-entry--recipient,
+.chat-entry--summary {
+  align-self: flex-end;
+  border-color: rgba(25, 135, 84, 0.25);
+  background: rgba(25, 135, 84, 0.09);
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.chat-entry--system {
+  border-style: dashed;
+  color: rgba(15, 23, 42, 0.65);
+  background: rgba(108, 117, 125, 0.1);
+}
+
+.draft-chat__composer {
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  background: rgba(248, 249, 252, 0.75);
+  box-shadow: 0 24px 60px -46px rgba(15, 23, 42, 0.25);
+}
+
+.draft-chat__composer textarea {
   resize: vertical;
+  min-height: 120px;
 }
 
-.timeline-message .badge {
-  margin-top: 0.25rem;
-}
+@media (max-width: 767px) {
+  .task-chat__conversation {
+    grid-template-columns: 20px 1fr;
+    gap: 1rem;
+  }
 
+  .task-chat__content {
+    padding: 1.1rem;
+  }
+
+  .draft-chat__composer {
+    padding: 1rem;
+  }
+}
 </style>
 

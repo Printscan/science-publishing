@@ -62,6 +62,26 @@ class SciencePublishingAPI {
     return apiClient.post(this.base.works, form);
   }
 
+  async updateWork(workId, payload = {}) {
+    if (!workId) {
+      throw new Error('workId is required');
+    }
+
+    if (payload instanceof FormData) {
+      return apiClient.patch(`${this.base.works}${workId}/`, payload);
+    }
+
+    const form = new FormData();
+    Object.entries(payload || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') {
+        return;
+      }
+      form.append(key, value);
+    });
+
+    return apiClient.patch(`${this.base.works}${workId}/`, form);
+  }
+
   async assignWorkEditor(workId, payload = {}) {
     return apiClient.post(`${this.base.works}${workId}/assign-editor/`, payload);
   }
@@ -114,6 +134,10 @@ class SciencePublishingAPI {
     return apiClient.delete(`${this.base.tasks}${taskId}/`);
   }
 
+  async closeTask(taskId, payload = {}) {
+    return apiClient.post(`${this.base.tasks}${taskId}/close/`, payload);
+  }
+
   async postTaskMessage(taskId, payload = {}) {
     return apiClient.post(`${this.base.tasks}${taskId}/messages/`, payload);
   }
@@ -143,6 +167,13 @@ class SciencePublishingAPI {
       throw new Error('workId is required');
     }
     return apiClient.get(`${this.base.works}${workId}/`);
+  }
+
+  async deleteWork(workId) {
+    if (!workId) {
+      throw new Error('workId is required');
+    }
+    return apiClient.delete(`${this.base.works}${workId}/`);
   }
 
   async getProfile(profileId) {
