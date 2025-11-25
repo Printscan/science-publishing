@@ -440,6 +440,14 @@ class EditorialTask(models.Model):
         related_name='science_publishing_received_tasks',
         verbose_name='Получатель'
     )
+    previous_task = models.OneToOneField(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='next_task',
+        verbose_name='Предыдущая задача'
+    )
     subject = models.CharField(
         'Тема',
         max_length=255,
@@ -456,6 +464,12 @@ class EditorialTask(models.Model):
         choices=Status.choices,
         default=Status.NEW
     )
+    payload = models.JSONField(
+        'Дополнительные данные',
+        blank=True,
+        default=dict,
+        help_text='Детали передачи, вложения, изменения.'
+    )
     created_at = models.DateTimeField(
         'Создана',
         auto_now_add=True
@@ -464,12 +478,17 @@ class EditorialTask(models.Model):
         'Обновлена',
         auto_now=True
     )
+    closed_at = models.DateTimeField(
+        'Дата закрытия',
+        null=True,
+        blank=True,
+        db_index=True
+    )
 
     class Meta:
         verbose_name = 'Редакционная задача'
         verbose_name_plural = 'Редакционные задачи'
         ordering = ['-created_at']
-        unique_together = [('work', 'recipient')]
         indexes = [
             models.Index(fields=['recipient', 'status']),
             models.Index(fields=['work', 'status']),
@@ -477,7 +496,6 @@ class EditorialTask(models.Model):
 
     def __str__(self) -> str:
         return f'{self.subject} → {self.recipient}'
-
 
 class EditorialTaskMessage(models.Model):
     """Сообщение внутри задачи (история общения)."""

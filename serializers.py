@@ -218,6 +218,8 @@ class EditorialTaskSerializer(serializers.ModelSerializer):
     sender_username = serializers.CharField(source='sender.username', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     messages = EditorialTaskMessageSerializer(many=True, read_only=True)
+    previous_task = serializers.UUIDField(source='previous_task_id', read_only=True)
+    next_task = serializers.SerializerMethodField()
 
     class Meta:
         model = EditorialTask
@@ -238,13 +240,37 @@ class EditorialTaskSerializer(serializers.ModelSerializer):
             'sender_username',
             'recipient',
             'recipient_username',
+            'previous_task',
+            'next_task',
             'subject',
             'message',
             'status',
             'status_display',
+            'payload',
             'created_at',
             'updated_at',
+            'closed_at',
             'messages',
         )
-        read_only_fields = ('created_at', 'updated_at', 'sender_username', 'recipient_username', 'work_title', 'status_display', 'messages')
+        read_only_fields = (
+            'created_at',
+            'updated_at',
+            'closed_at',
+            'sender_username',
+            'recipient_username',
+            'work_title',
+            'status_display',
+            'messages',
+            'previous_task',
+            'next_task',
+            'payload',
+        )
         ref_name = 'SciencePublishingEditorialTask'
+
+    def get_next_task(self, obj):
+        try:
+            return obj.next_task.id
+        except EditorialTask.DoesNotExist:
+            return None
+        except AttributeError:
+            return None

@@ -7,3 +7,7 @@ class SciencePublishingConfig(AppConfig):
     label = 'science_publishing'
     verbose_name = 'Управление научными публикациями'
     auto_api = True
+
+    def ready(self):
+        # Импортируем сигналы при старте приложения
+        from . import signals  # noqa: F401
