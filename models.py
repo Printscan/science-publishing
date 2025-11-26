@@ -357,6 +357,175 @@ class Work(models.Model):
             })
 
 
+class Publication(models.Model):
+    """Отдельная таблица опубликованных работ (снимок полей работы)."""
+
+    id = models.UUIDField(
+        'Идентификатор',
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    source_work = models.OneToOneField(
+        Work,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='publication',
+        verbose_name='Исходная работа'
+    )
+    profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='publications',
+        verbose_name='Профиль автора'
+    )
+    author_full_name = models.CharField(
+        'Полное имя автора',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    publication_kind = models.CharField(
+        'Тип публикации',
+        max_length=32,
+        choices=PublicationKind.choices
+    )
+    guideline_subtype = models.CharField(
+        'Подтип методических материалов',
+        max_length=32,
+        choices=GuidelineSubtype.choices,
+        blank=True,
+        default='',
+        help_text='Используется для публикаций типа "Методические рекомендации".'
+    )
+    discipline_name = models.CharField(
+        'Название дисциплины',
+        max_length=255
+    )
+    discipline_topic = models.CharField(
+        'Тема дисциплины',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    rector_name = models.CharField(
+        'Ректор',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    year = models.PositiveIntegerField('Год')
+    pages_count = models.PositiveIntegerField(
+        'Количество страниц',
+        default=0
+    )
+    udc = models.CharField(
+        'УДК',
+        max_length=64,
+        blank=True,
+        default=''
+    )
+    bbk = models.CharField(
+        'ББК',
+        max_length=64,
+        blank=True,
+        default=''
+    )
+    developers = models.CharField(
+        'Разработчики',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    scientific_editor = models.CharField(
+        'Научный редактор',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    computer_layout = models.CharField(
+        'Компьютерная верстка',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    co_authors = models.CharField(
+        'Соавторы',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    training_form = models.CharField(
+        'Форма обучения',
+        max_length=32,
+        choices=TrainingForm.choices
+    )
+    faculty = models.CharField(
+        'Факультет',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    department = models.CharField(
+        'Кафедра',
+        max_length=255,
+        blank=True,
+        default=''
+    )
+    short_description = models.TextField(
+        'Краткое описание',
+        blank=True,
+        default=''
+    )
+    document = models.FileField(
+        'Файл публикации',
+        upload_to='science_publishing/works/%Y/%m/',
+        blank=True,
+        null=True
+    )
+    status = models.CharField(
+        'Статус',
+        max_length=64,
+        choices=Work.Status.choices,
+        default=Work.Status.PUBLISHED,
+        db_index=True
+    )
+    current_editor = models.ForeignKey(
+        UserProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='edited_publications',
+        verbose_name='Ответственный редактор'
+    )
+    published_at = models.DateTimeField(
+        'Дата публикации',
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(
+        'Создана',
+        auto_now_add=True
+    )
+    updated_at = models.DateTimeField(
+        'Обновлена',
+        auto_now=True
+    )
+
+    class Meta:
+        verbose_name = 'Публикация'
+        verbose_name_plural = 'Публикации'
+        ordering = ['-published_at', '-created_at']
+        indexes = [
+            models.Index(fields=['profile', 'year']),
+            models.Index(fields=['publication_kind']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.discipline_name} ({self.year})'
+
 class UserProfileRole(models.Model):
     """Назначение роли пользователю."""
 
@@ -405,14 +574,8 @@ class UserProfileRole(models.Model):
         return f'{self.profile} → {self.role}'
 
 
-class EditorialTask(models.Model):
-    """Задача, сопровождающая редакционный процесс работы."""
-
-    class Status(models.TextChoices):
-        NEW = 'new', 'Новая'
-        IN_PROGRESS = 'in_progress', 'В работе'
-        DONE = 'done', 'Завершена'
-        ARCHIVED = 'archived', 'Архивирована'
+class WorkChatMessage(models.Model):
+    """Сообщение в общем чате по работе."""
 
     id = models.UUIDField(
         'Идентификатор',
@@ -423,97 +586,19 @@ class EditorialTask(models.Model):
     work = models.ForeignKey(
         Work,
         on_delete=models.CASCADE,
-        related_name='tasks',
+        related_name='chat_messages',
         verbose_name='Работа'
-    )
-    sender = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='science_publishing_sent_tasks',
-        verbose_name='Отправитель'
-    )
-    recipient = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='science_publishing_received_tasks',
-        verbose_name='Получатель'
-    )
-    previous_task = models.OneToOneField(
-        'self',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='next_task',
-        verbose_name='Предыдущая задача'
-    )
-    subject = models.CharField(
-        'Тема',
-        max_length=255,
-        default='Редакционная задача'
-    )
-    message = models.TextField(
-        'Комментарий',
-        blank=True,
-        default=''
-    )
-    status = models.CharField(
-        'Статус',
-        max_length=32,
-        choices=Status.choices,
-        default=Status.NEW
-    )
-    payload = models.JSONField(
-        'Дополнительные данные',
-        blank=True,
-        default=dict,
-        help_text='Детали передачи, вложения, изменения.'
-    )
-    created_at = models.DateTimeField(
-        'Создана',
-        auto_now_add=True
-    )
-    updated_at = models.DateTimeField(
-        'Обновлена',
-        auto_now=True
-    )
-    closed_at = models.DateTimeField(
-        'Дата закрытия',
-        null=True,
-        blank=True,
-        db_index=True
-    )
-
-    class Meta:
-        verbose_name = 'Редакционная задача'
-        verbose_name_plural = 'Редакционные задачи'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['recipient', 'status']),
-            models.Index(fields=['work', 'status']),
-        ]
-
-    def __str__(self) -> str:
-        return f'{self.subject} → {self.recipient}'
-
-class EditorialTaskMessage(models.Model):
-    """Сообщение внутри задачи (история общения)."""
-
-    task = models.ForeignKey(
-        EditorialTask,
-        on_delete=models.CASCADE,
-        related_name='messages',
-        verbose_name='Задача'
     )
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='science_publishing_task_messages',
+        related_name='science_publishing_chat_messages',
         verbose_name='Автор'
     )
     content = models.TextField(
-        'Сообщение'
+        'Сообщение',
+        blank=True,
+        default=''
     )
     metadata = models.JSONField(
         'Дополнительные данные',
@@ -532,9 +617,12 @@ class EditorialTaskMessage(models.Model):
     )
 
     class Meta:
-        verbose_name = 'Сообщение задачи'
-        verbose_name_plural = 'Сообщения задач'
+        verbose_name = 'Сообщение чата работы'
+        verbose_name_plural = 'Сообщения чатов работ'
         ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['work', 'created_at']),
+        ]
 
     def __str__(self) -> str:
-        return f'Сообщение {self.author} ({self.created_at:%Y-%m-%d %H:%M})'
+        return f'{self.author} → {self.work}'

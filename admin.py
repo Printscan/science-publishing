@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import EditorialRole, EditorialTask, UserProfile, UserProfileRole, Work
+from .models import EditorialRole, UserProfile, UserProfileRole, Work, WorkChatMessage
 
 
 @admin.register(EditorialRole)
@@ -33,9 +33,9 @@ class WorkAdmin(admin.ModelAdmin):
     autocomplete_fields = ('profile',)
 
 
-@admin.register(EditorialTask)
-class EditorialTaskAdmin(admin.ModelAdmin):
-    list_display = ('subject', 'work', 'recipient', 'status', 'created_at')
-    list_filter = ('status', 'created_at')
-    search_fields = ('subject', 'recipient__username', 'recipient__last_name', 'work__discipline_name')
-    autocomplete_fields = ('work', 'recipient', 'sender')
+@admin.register(WorkChatMessage)
+class WorkChatMessageAdmin(admin.ModelAdmin):
+    list_display = ('work', 'author', 'is_system', 'created_at')
+    list_filter = ('is_system', 'created_at')
+    search_fields = ('content', 'author__username', 'author__last_name', 'work__discipline_name')
+    autocomplete_fields = ('work', 'author')

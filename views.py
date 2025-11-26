@@ -1,9 +1,6 @@
-from datetime import datetime
-
-from django.db import models
 from django.db.models.fields.files import FieldFile
+from django.http import Http404
 from django.utils import timezone
-from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -11,30 +8,14 @@ from rest_framework.response import Response
 
 from src.core.utils.mixins import SwaggerSafeMixin
 
-from .models import EditorialRole, EditorialTask, EditorialTaskMessage, UserProfile, UserProfileRole, Work
-
-
-ASSIGNABLE_WORK_STATUSES = {
-    Work.Status.PENDING_CHIEF_REVIEW,
-    Work.Status.IN_EDITOR_REVIEW,
-    Work.Status.WAITING_FOR_AUTHOR,
-    Work.Status.READY_FOR_CHIEF_APPROVAL,
-}
-
-
-AUTHOR_TASK_ALLOWED_STATUSES = {
-    Work.Status.PENDING_CHIEF_REVIEW,
-    Work.Status.IN_EDITOR_REVIEW,
-    Work.Status.WAITING_FOR_AUTHOR,
-    Work.Status.READY_FOR_CHIEF_APPROVAL,
-}
+from .models import EditorialRole, Publication, UserProfile, UserProfileRole, Work, WorkChatMessage
 from .serializers import (
     EditorialRoleSerializer,
+    PublicationSerializer,
     UserProfileRoleSerializer,
     UserProfileSerializer,
     WorkSerializer,
-    EditorialTaskSerializer,
-    EditorialTaskMessageSerializer,
+    WorkChatMessageSerializer,
 )
 
 
@@ -70,29 +51,6 @@ class UserProfileViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         'organization',
     )
     ordering = ('user__last_name', 'user__first_name')
-
-
-@action(detail=True, methods=['post'], url_path='close')
-def close_task(self, request, pk=None):
-    """Позволяет получателю вручную закрыть задачу и оставить комментарий."""
-    if self.is_swagger_fake_view():
-        return Response({})
-    task = self.get_object()
-    if task.closed_at is not None:
-        raise ValidationError({'detail': 'Задача уже закрыта.'})
-    if task.recipient_id != request.user.id:
-        raise PermissionDenied('Только получатель может закрыть задачу.')
-
-    note = (request.data.get('message') or '').strip()
-    task.status = EditorialTask.Status.DONE
-    task.closed_at = timezone.now()
-    task.updated_at = timezone.now()
-    task.save(update_fields=['status', 'closed_at', 'updated_at'])
-    if note:
-        EditorialTaskMessage.objects.create(task=task, author=request.user, content=note, is_system=False)
-
-    serializer = self.get_serializer(task)
-    return Response(serializer.data)
 
     def get_queryset(self):
         base_queryset = super().get_queryset()
@@ -228,7 +186,16 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         return profile.roles.filter(code=role_code).exists()
 
     def _ensure_user_has_role(self, user, role_code):
-        if not self._user_has_role(user, role_code):
+        """
+        Проверяет наличие нужной роли у пользователя.
+        Администраторов считаем эквивалентными главному редактору для действий с работами.
+        """
+        codes = {role_code} if isinstance(role_code, str) else set(role_code)
+        # Администратор может выполнять действия главреда (назначать, публиковать).
+        if EditorialRole.Code.CHIEF_EDITOR in codes:
+            codes.add(EditorialRole.Code.ADMINISTRATOR)
+
+        if not any(self._user_has_role(user, code) for code in codes):
             raise PermissionDenied('Недостаточно прав для выполнения действия.')
 
     def _is_privileged_user(self, user):
@@ -264,146 +231,111 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
     def _work_title(self, work):
         return work.discipline_name or work.get_publication_kind_display() or str(work.id)
 
-    def _get_active_task_for_user(self, work, user):
-        if not user:
+    @staticmethod
+    def _get_work_or_404(pk):
+        # прямой поиск по работе
+        work = Work.objects.filter(pk=pk).first()
+        if work:
+            return work
+        # поиск по публикации (id публикации или ссылка на исходную работу)
+        publication = Publication.objects.filter(pk=pk).first()
+        if publication and publication.source_work:
+            return publication.source_work
+        publication_by_source = Publication.objects.filter(source_work_id=pk).first()
+        if publication_by_source and publication_by_source.source_work:
+            return publication_by_source.source_work
+        raise Http404('Работа не найдена.')
+
+    @staticmethod
+    def _sync_publication_from_work(work):
+        """Создает или обновляет публикацию на основании работы."""
+        if not work:
             return None
-        return (
-            work.tasks
-            .filter(recipient=user, closed_at__isnull=True)
-            .order_by('-created_at')
-            .first()
+        defaults = {
+            'profile': work.profile,
+            'author_full_name': work.author_full_name,
+            'publication_kind': work.publication_kind,
+            'guideline_subtype': work.guideline_subtype,
+            'discipline_name': work.discipline_name,
+            'discipline_topic': work.discipline_topic,
+            'rector_name': work.rector_name,
+            'year': work.year,
+            'pages_count': work.pages_count,
+            'udc': work.udc,
+            'bbk': work.bbk,
+            'developers': work.developers,
+            'scientific_editor': work.scientific_editor,
+            'computer_layout': work.computer_layout,
+            'co_authors': work.co_authors,
+            'training_form': work.training_form,
+            'faculty': work.faculty,
+            'department': work.department,
+            'short_description': work.short_description,
+            'document': work.document,
+            'status': Work.Status.PUBLISHED,
+            'current_editor': work.current_editor,
+            'published_at': work.published_at,
+        }
+        publication, _ = Publication.objects.update_or_create(
+            source_work=work,
+            defaults=defaults,
+        )
+        return publication
+
+    @staticmethod
+    def _finalize_publication_and_remove_work(work, note=None, actor=None):
+        """
+        Создаёт публикацию, при необходимости записывает финальное сообщение и удаляет исходную работу.
+        Возвращает объект публикации.
+        """
+        publication = WorkViewSet._sync_publication_from_work(work)
+        # каскадно удалит переписку/чаты/файлы черновика
+        work.delete()
+        return publication
+
+    def _can_access_chat(self, user, work):
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        if user.is_superuser or user.is_staff:
+            return True
+        if getattr(work.profile, 'user', None) == user:
+            return True
+        if getattr(getattr(work, 'current_editor', None), 'user', None) == user:
+            return True
+        return self._user_has_role(user, EditorialRole.Code.CHIEF_EDITOR) or self._user_has_role(
+            user, EditorialRole.Code.ADMINISTRATOR
         )
 
-    def _spawn_task(
-        self,
-        work,
-        recipient,
-        *,
-        sender=None,
-        subject=None,
-        message=None,
-        status=None,
-        previous_task=None,
-        payload=None,
-        close_status=EditorialTask.Status.DONE,
-        close_payload=None,
-    ):
-        task = EditorialTask.objects.create(
-            work=work,
-            recipient=recipient,
-            sender=sender,
-            subject=subject or 'Редакционная задача',
-            message=message or '',
-            status=status or EditorialTask.Status.NEW,
-            previous_task=previous_task,
-            payload=payload or {},
-        )
-        if previous_task:
-            payload_to_store = previous_task.payload if close_payload is None else close_payload
-            self._close_task(previous_task, status=close_status, payload=payload_to_store)
-        return task
-
-    def _close_task(self, task, *, status=None, payload=None):
-        if not task:
-            return
-        update_fields = []
-        if status and task.status != status:
-            task.status = status
-            update_fields.append('status')
-        if payload is not None:
-            task.payload = payload
-            update_fields.append('payload')
-        if task.closed_at is None:
-            task.closed_at = timezone.now()
-            update_fields.append('closed_at')
-        task.updated_at = timezone.now()
-        update_fields.append('updated_at')
-        task.save(update_fields=update_fields)
-
-    def _append_message(self, task, author, content='', *, metadata=None, is_system=False):
+    @staticmethod
+    def _append_chat_message(work, author, content='', *, metadata=None, is_system=False):
+        if not author:
+            return None
         if not content and not metadata:
             return None
-        metadata = metadata or {}
-        return EditorialTaskMessage.objects.create(
-            task=task,
+        return WorkChatMessage.objects.create(
+            work=work,
             author=author,
             content=content or '',
-            metadata=metadata,
+            metadata=metadata or {},
             is_system=is_system,
         )
 
-    def _set_task_status(self, task, value):
-        if task.status != value:
-            task.status = value
-            fields = ['status', 'updated_at']
-            if value in (EditorialTask.Status.DONE, EditorialTask.Status.ARCHIVED):
-                if task.closed_at is None:
-                    task.closed_at = timezone.now()
-                    fields.append('closed_at')
-            else:
-                if task.closed_at is not None:
-                    task.closed_at = None
-                    fields.append('closed_at')
-            task.updated_at = timezone.now()
-            task.save(update_fields=fields)
-
-    def _notify_chief_editors_about_new_work(self, work, sender=None):
+    def _notify_chief_editors_about_new_work(self, work, sender=None, message=None):
         title = self._work_title(work)
-        message = f'Работа <{title}> поступила в рассмотрение.'
+        note = message or f'Работа <{title}> поступила в рассмотрение.'
         for user in self._role_users(EditorialRole.Code.CHIEF_EDITOR):
-            task = self._spawn_task(
+            author = sender or user
+            self._append_chat_message(
                 work,
-                recipient=user,
-                sender=sender,
-                subject=f'Задача по работе <{title}>',
-                message=message,
-                status=EditorialTask.Status.NEW,
-                payload={
+                author,
+                note,
+                metadata={
                     'work_status': work.status,
-                    'note': message,
+                    'kind': 'notification',
+                    'recipient': 'chief_editor',
                 },
+                is_system=sender is None,
             )
-            if sender:
-                self._append_message(task, sender, message)
-
-    def _get_editor_task(self, work):
-        editor = getattr(work.current_editor, 'user', None)
-        if not editor:
-            return None
-        return self._get_active_task_for_user(work, editor)
-
-    def _get_author_task(self, work):
-        author = getattr(work.profile, 'user', None)
-        if not author:
-            return None
-        return self._get_active_task_for_user(work, author)
-
-    def _update_chief_tasks(self, work, status_value, message=None, author=None):
-        chiefs = self._role_users(EditorialRole.Code.CHIEF_EDITOR)
-        if not chiefs:
-            return
-        for chief in chiefs:
-            previous_task = self._get_active_task_for_user(work, chief)
-            task = self._spawn_task(
-                work,
-                recipient=chief,
-                sender=author,
-                subject=f'Задача по работе <{self._work_title(work)}>',
-                message=message,
-                status=status_value,
-                previous_task=previous_task,
-                payload={
-                    'work_status': work.status,
-                    'note': message,
-                },
-                close_status=EditorialTask.Status.DONE,
-                close_payload={
-                    'work_status': work.status,
-                    'note': message,
-                } if message else (previous_task.payload if previous_task else None),
-            )
-            if message and author:
-                self._append_message(task, author, message)
 
     def _extract_correction_payload(self, request):
         payload = {}
@@ -502,6 +434,39 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         profile = serializer.validated_data.get('profile') or self._get_profile_for_request()
+        required_fields = [
+            'rector_name',
+            'pages_count',
+            'year',
+            'udc',
+            'discipline_name',
+            'bbk',
+            'discipline_topic',
+            'developers',
+            'publication_kind',
+            'guideline_subtype',
+            'training_form',
+            'scientific_editor',
+            'computer_layout',
+            'author_full_name',
+            'co_authors',
+            'faculty',
+            'department',
+        ]
+        missing = []
+        data = self.request.data
+        publication_kind = data.get('publication_kind')
+        for field in required_fields:
+            if field == 'guideline_subtype' and publication_kind != Work.PublicationKind.METHOD_GUIDELINES:
+                continue
+            value = data.get(field)
+            if value is None or str(value).strip() == '':
+                missing.append(field)
+        if 'document' not in self.request.FILES:
+            missing.append('document')
+        if missing:
+            raise ValidationError({field: 'Поле обязательно для заполнения.' for field in missing})
+
         work = serializer.save(
             profile=profile,
             status=Work.Status.DRAFT,
@@ -532,12 +497,59 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         self.perform_destroy(work)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=['post'], url_path='force-publish')
+    def force_publish(self, request, pk=None):
+        """Публикация работы в любом статусе (для главреда)."""
+        if self.is_swagger_fake_view():
+            return Response({})
+        work = self._get_work_or_404(pk)
+        self._ensure_user_has_role(request.user, EditorialRole.Code.CHIEF_EDITOR)
+
+        note = (request.data.get('message') or '').strip()
+
+        work.status = Work.Status.PUBLISHED
+        work.published_at = timezone.now()
+        work.save(update_fields=['status', 'published_at', 'updated_at'])
+
+        # запишем в чат итоговое сообщение
+        can_chat = False
+        if getattr(request.user, 'is_authenticated', False):
+            if request.user.is_superuser or request.user.is_staff:
+                can_chat = True
+            else:
+                author_user = getattr(work.profile, 'user', None)
+                editor_user = getattr(getattr(work, 'current_editor', None), 'user', None)
+                can_chat = request.user in (author_user, editor_user)
+                if not can_chat:
+                    try:
+                        profile = request.user.science_publishing_profile
+                        can_chat = profile.roles.filter(
+                            code__in=[EditorialRole.Code.ADMINISTRATOR, EditorialRole.Code.CHIEF_EDITOR]
+                        ).exists()
+                    except UserProfile.DoesNotExist:
+                        can_chat = False
+        if can_chat:
+            WorkChatMessage.objects.create(
+                work=work,
+                author=request.user,
+                content=note or 'Работа опубликована принудительно.',
+                metadata={
+                    'action': 'force_publish',
+                    'work_status': work.status,
+                },
+                is_system=False,
+            )
+
+        publication = self._finalize_publication_and_remove_work(work, note=note, actor=request.user)
+        serializer = PublicationSerializer(publication, context={'request': request})
+        return Response(serializer.data)
+
     # ------------------------------------------------------------------ #
     # updates with change logging
     # ------------------------------------------------------------------ #
 
     def _log_work_update(self, work, author, changes, attachments, note=''):
-        """Append system messages about work updates to active tasks for author/editor so both видят историю."""
+        """Добавляет запись в чат о правках в работе."""
         if not changes and not attachments:
             return
         content = note or 'Обновлены данные черновика.'
@@ -547,12 +559,8 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         if attachments:
             metadata['attachments'] = attachments
 
-        editor_task = self._get_editor_task(work)
-        if editor_task:
-            self._append_message(editor_task, author, content, metadata=metadata, is_system=True)
-        author_task = self._get_author_task(work)
-        if author_task and author_task != editor_task:
-            self._append_message(author_task, author, content, metadata=metadata, is_system=True)
+        if self._can_access_chat(author, work):
+            self._append_chat_message(work, author, content, metadata=metadata, is_system=False)
 
     def _update_with_changes(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -600,14 +608,86 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'], url_path='my/drafts')
+    def my_drafts(self, request):
+        """Черновики текущего пользователя (все статусы, кроме опубликованных)."""
+        if self.is_swagger_fake_view():
+            return Response([])
+
+        profile = self._get_profile_for_request()
+        queryset = (
+            super()
+            .get_queryset()
+            .filter(profile=profile)
+            .exclude(status=Work.Status.PUBLISHED)
+            .order_by('-created_at')
+        )
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page or queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='my/published')
+    def my_published(self, request):
+        """Опубликованные работы текущего пользователя."""
+        if self.is_swagger_fake_view():
+            return Response([])
+
+        profile = self._get_profile_for_request()
+        queryset = (
+            super()
+            .get_queryset()
+            .filter(profile=profile, status=Work.Status.PUBLISHED)
+            .order_by('-published_at', '-created_at')
+        )
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page or queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get', 'post'], url_path='chat')
+    def chat(self, request, pk=None):
+        """Простой чат между участниками по конкретной работе."""
+        work = self.get_object()
+        if self.is_swagger_fake_view():
+            return Response([] if request.method.lower() == 'get' else {})
+        if not self._can_access_chat(request.user, work):
+            raise PermissionDenied('Недостаточно прав для просмотра переписки.')
+
+        if request.method.lower() == 'get':
+            messages = (
+                WorkChatMessage.objects.filter(work=work)
+                .select_related('author', 'author__science_publishing_profile')
+                .prefetch_related('author__science_publishing_profile__roles')
+                .order_by('created_at')
+            )
+            serializer = WorkChatMessageSerializer(messages, many=True, context={'request': request})
+            return Response(serializer.data)
+
+        content = (request.data.get('content') or '').strip()
+        metadata = request.data.get('metadata') or {}
+        if not content and not metadata:
+            raise ValidationError({'content': 'Сообщение не может быть пустым.'})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        message = WorkChatMessage.objects.create(
+            work=work,
+            author=request.user,
+            content=content,
+            metadata=metadata,
+            is_system=False,
+        )
+        serializer = WorkChatMessageSerializer(message, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='assign-editor')
     def assign_editor(self, request, pk=None):
         if self.is_swagger_fake_view():
             return Response({})
         work = self.get_object()
         self._ensure_user_has_role(request.user, EditorialRole.Code.CHIEF_EDITOR)
-        if work.status not in ASSIGNABLE_WORK_STATUSES:
-            raise ValidationError({'detail': 'Для текущего статуса работы назначение редактора недоступно.'})
         editor_profile_id = request.data.get('editor_profile')
         if not editor_profile_id:
             raise ValidationError({'editor_profile': 'Укажите редактора.'})
@@ -617,40 +697,37 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
             raise ValidationError({'editor_profile': 'Профиль не найден.'}) from exc
         if not editor_profile.roles.filter(code=EditorialRole.Code.EDITOR).exists():
             raise ValidationError({'editor_profile': 'Пользователь не имеет роли редактора.'})
+        # Не позволяем назначать редактором автора работы
+        author_user = getattr(work.profile, 'user', None)
+        if author_user and editor_profile.user_id == author_user.id:
+            raise ValidationError({'editor_profile': 'Нельзя назначать автора редактором собственной работы.'})
 
-        message = (request.data.get('message') or '').strip() or 'Вы назначены ответственным редактором.'
+        message = (request.data.get('message') or '').strip()
+        previous_editor = work.current_editor
         work.current_editor = editor_profile
         work.status = Work.Status.IN_EDITOR_REVIEW
         work.save(update_fields=['current_editor', 'status', 'updated_at'])
 
         editor_user = editor_profile.user
-        previous_task = self._get_active_task_for_user(work, request.user)
-        transition_payload = {
-            'work_status': work.status,
-            'note': message,
-            'action': 'assign_editor',
-            'target_editor': editor_user.username,
-        }
-        task = self._spawn_task(
-            work,
-            recipient=editor_user,
-            sender=request.user,
-            subject=f'\u0417\u0430\u0434\u0430\u0447\u0430 \u043f\u043e \u0440\u0430\u0431\u043e\u0442\u0435 <{self._work_title(work)}>',
-            message=message,
-            status=EditorialTask.Status.IN_PROGRESS,
-            previous_task=previous_task,
-            payload=transition_payload,
-            close_payload=transition_payload,
-        )
-        if message:
-            self._append_message(task, request.user, message)
         display_name = editor_profile.display_name or editor_user.get_full_name() or editor_user.get_username()
-        self._update_chief_tasks(
-            work,
-            EditorialTask.Status.IN_PROGRESS,
-            message=f'Работа «{self._work_title(work)}» у редактора {display_name}.',
-            author=request.user,
-        )
+
+        metadata = {
+            'action': 'assign_editor',
+            'work_status': work.status,
+            'editor': display_name,
+            'editor_username': editor_user.get_username(),
+        }
+        if previous_editor and previous_editor != editor_profile:
+            prev_user = previous_editor.user
+            metadata['previous_editor'] = prev_user.get_username()
+        default_note = f'Назначен редактор: {display_name}.'
+        if self._can_access_chat(request.user, work):
+            self._append_chat_message(
+                work,
+                request.user,
+                message or default_note,
+                metadata=metadata,
+            )
 
         serializer = self.get_serializer(work)
         return Response(serializer.data)
@@ -670,39 +747,19 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         if not message:
             raise ValidationError({'message': 'Пожалуйста, заполните комментарий к запросу.'})
 
-        author_user = getattr(work.profile, 'user', None)
-        if not author_user:
-            raise ValidationError({'detail': 'У работы отсутствует автор.'})
-
-        previous_task = self._get_active_task_for_user(work, request.user)
-        task_payload = {
-            'work_status': Work.Status.WAITING_FOR_AUTHOR,
-            'note': message,
-            'action': 'request_changes',
-        }
-        task = self._spawn_task(
-            work,
-            recipient=author_user,
-            sender=request.user,
-            subject=f'Запрос на работу «{self._work_title(work)}»',
-            message=message,
-            status=EditorialTask.Status.NEW,
-            previous_task=previous_task,
-            payload=task_payload,
-            close_payload=task_payload,
-        )
-        self._append_message(
-            task,
-            request.user,
-            message,
-            metadata={
-                'kind': 'request_changes',
-                'status': Work.Status.WAITING_FOR_AUTHOR,
-            },
-        )
-
         work.status = Work.Status.WAITING_FOR_AUTHOR
         work.save(update_fields=['status', 'updated_at'])
+        if self._can_access_chat(request.user, work):
+            self._append_chat_message(
+                work,
+                request.user,
+                message,
+                metadata={
+                    'kind': 'request_changes',
+                    'action': 'request_changes',
+                    'work_status': work.status,
+                },
+            )
 
         serializer = self.get_serializer(work)
         return Response(serializer.data)
@@ -743,44 +800,24 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         editor_user = work.current_editor.user
         metadata = {
             'kind': 'correction',
+            'action': 'submit_corrections',
             'status': Work.Status.IN_EDITOR_REVIEW,
+            'work_status': Work.Status.IN_EDITOR_REVIEW,
         }
         if changes:
             metadata['changes'] = changes
         if attachments:
             metadata['attachments'] = attachments
 
-        previous_task = self._get_active_task_for_user(work, request.user)
-        task_payload = {
-            'work_status': Work.Status.IN_EDITOR_REVIEW,
-            'note': message,
-            'action': 'submit_corrections',
-        }
-        if changes:
-            task_payload['changes'] = changes
-        if attachments:
-            task_payload['attachments'] = attachments
-
-        editor_task = self._spawn_task(
-            work,
-            recipient=editor_user,
-            sender=request.user,
-            subject=f'Ответ на замечания по <{self._work_title(work)}>',
-            message=message,
-            status=EditorialTask.Status.NEW,
-            previous_task=previous_task,
-            payload=task_payload,
-            close_payload=task_payload,
-        )
-        self._append_message(
-            editor_task,
-            request.user,
-            message,
-            metadata=metadata,
-        )
-
         work.status = Work.Status.IN_EDITOR_REVIEW
         work.save(update_fields=['status', 'updated_at'])
+        if self._can_access_chat(request.user, work):
+            self._append_chat_message(
+                work,
+                request.user,
+                message,
+                metadata=metadata,
+            )
 
         serializer = self.get_serializer(work)
         return Response(serializer.data)
@@ -799,37 +836,16 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
 
         work.status = Work.Status.READY_FOR_CHIEF_APPROVAL
         work.save(update_fields=['status', 'updated_at'])
-
-        editor_task = self._get_editor_task(work)
-        if editor_task:
-            payload = editor_task.payload or {}
-            payload.update({
-                'work_status': work.status,
-                'action': 'editor_approve',
-            })
-            if note:
-                payload['note'] = note
-            self._close_task(editor_task, status=EditorialTask.Status.DONE, payload=payload)
-            if note:
-                self._append_message(editor_task, request.user, note)
-
-        author_task = self._get_author_task(work)
-        if author_task:
-            author_payload = author_task.payload or {}
-            author_payload.update({
-                'work_status': work.status,
-                'action': 'editor_approve',
-            })
-            if note:
-                author_payload['note'] = note
-            self._close_task(author_task, status=EditorialTask.Status.DONE, payload=author_payload)
-
-        self._update_chief_tasks(
-            work,
-            EditorialTask.Status.IN_PROGRESS,
-            message=f'Работа «{self._work_title(work)}» готова к утверждению.',
-            author=request.user,
-        )
+        if self._can_access_chat(request.user, work):
+            self._append_chat_message(
+                work,
+                request.user,
+                note or 'Работа отправлена главному редактору.',
+                metadata={
+                    'action': 'editor_approve',
+                    'work_status': work.status,
+                },
+            )
 
         serializer = self.get_serializer(work)
         return Response(serializer.data)
@@ -838,7 +854,7 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
     def chief_approve(self, request, pk=None):
         if self.is_swagger_fake_view():
             return Response({})
-        work = self.get_object()
+        work = self._get_work_or_404(pk)
         self._ensure_user_has_role(request.user, EditorialRole.Code.CHIEF_EDITOR)
         if work.status != Work.Status.READY_FOR_CHIEF_APPROVAL:
             raise ValidationError({'detail': 'Работа еще не готова к публикации.'})
@@ -848,266 +864,119 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
         work.status = Work.Status.PUBLISHED
         work.published_at = timezone.now()
         work.save(update_fields=['status', 'published_at', 'updated_at'])
+        if self._can_access_chat(request.user, work):
+            self._append_chat_message(
+                work,
+                request.user,
+                note or 'Главный редактор утвердил публикацию.',
+                metadata={
+                    'action': 'chief_approve',
+                    'work_status': work.status,
+                },
+            )
 
-        for task in work.tasks.all():
-            payload = task.payload or {}
-            payload.update({'work_status': work.status, 'action': 'chief_approve'})
-            if note:
-                payload['note'] = note
-            self._close_task(task, status=EditorialTask.Status.DONE, payload=payload)
-            if note:
-                self._append_message(task, request.user, note)
+        publication = self._finalize_publication_and_remove_work(work, note=note, actor=request.user)
+        serializer = PublicationSerializer(publication, context={'request': request})
+        return Response(serializer.data)
+
+
+class PublicationViewSet(SwaggerSafeMixin, viewsets.ReadOnlyModelViewSet):
+    """Публикации (отдельная таблица после утверждения работы)."""
+
+    queryset = Publication.objects.select_related(
+        'profile',
+        'profile__user',
+        'current_editor',
+        'current_editor__user',
+        'source_work',
+    )
+    serializer_class = PublicationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filterset_fields = (
+        'profile',
+        'publication_kind',
+        'guideline_subtype',
+        'training_form',
+        'year',
+    )
+    search_fields = (
+        'discipline_name',
+        'discipline_topic',
+        'author_full_name',
+        'co_authors',
+        'profile__display_name',
+        'profile__user__username',
+    )
+    ordering = ('-published_at', '-created_at')
+
+    def get_queryset(self):
+        base_queryset = super().get_queryset()
+        if self.is_swagger_fake_view():
+            return base_queryset.none()
+        user = self.request.user
+        if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
+            return self.get_safe_queryset(base_queryset)
+        try:
+            profile = user.science_publishing_profile
+        except UserProfile.DoesNotExist:
+            return base_queryset.none()
+
+        has_privileged_role = profile.roles.filter(
+            code__in=[
+                EditorialRole.Code.ADMINISTRATOR,
+                EditorialRole.Code.CHIEF_EDITOR,
+                EditorialRole.Code.EDITOR,
+            ]
+        ).exists()
+        if has_privileged_role:
+            return self.get_safe_queryset(base_queryset)
+
+        return self.get_safe_queryset(base_queryset.filter(profile__user=user))
+
+    @action(detail=True, methods=['post'], url_path='force-publish')
+    def force_publish(self, request, pk=None):
+        """Публикация работы в любом статусе (для главреда)."""
+        if self.is_swagger_fake_view():
+            return Response({})
+        work = self._get_work_or_404(pk)
+        self._ensure_user_has_role(request.user, EditorialRole.Code.CHIEF_EDITOR)
+
+        note = (request.data.get('message') or '').strip()
+
+        work.status = Work.Status.PUBLISHED
+        work.published_at = timezone.now()
+        work.save(update_fields=['status', 'published_at', 'updated_at'])
+        author_user = getattr(work.profile, 'user', None)
+        editor_user = getattr(getattr(work, 'current_editor', None), 'user', None)
+        if getattr(request.user, 'is_authenticated', False):
+            can_chat = False
+            if request.user.is_superuser or request.user.is_staff:
+                can_chat = True
+            elif request.user == author_user or request.user == editor_user:
+                can_chat = True
+            else:
+                try:
+                    profile = request.user.science_publishing_profile
+                    can_chat = profile.roles.filter(
+                        code__in=[EditorialRole.Code.ADMINISTRATOR, EditorialRole.Code.CHIEF_EDITOR]
+                    ).exists()
+                except UserProfile.DoesNotExist:
+                    can_chat = False
+        else:
+            can_chat = False
+        if can_chat:
+            WorkChatMessage.objects.create(
+                work=work,
+                author=request.user,
+                content=note or 'Работа опубликована принудительно.',
+                metadata={
+                    'action': 'force_publish',
+                    'work_status': work.status,
+                },
+                is_system=False,
+            )
+
+        self._sync_publication_from_work(work)
 
         serializer = self.get_serializer(work)
         return Response(serializer.data)
-
-class EditorialTaskViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
-    """Задачи редакционного процесса."""
-
-    queryset = EditorialTask.objects.select_related('work', 'recipient', 'sender', 'work__profile', 'work__profile__user')
-    serializer_class = EditorialTaskSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    author_task_allowed_statuses = AUTHOR_TASK_ALLOWED_STATUSES
-    filterset_fields = (
-        'status',
-        'recipient',
-        'sender',
-        'work',
-        'work__profile',
-        'work__publication_kind',
-        'work__guideline_subtype',
-        'work__training_form',
-        'work__year',
-    )
-    search_fields = (
-        'subject',
-        'message',
-        'work__discipline_name',
-        'recipient__username',
-        'work__profile__display_name',
-        'work__profile__user__username',
-        'work__profile__user__first_name',
-        'work__profile__user__last_name',
-    )
-    ordering = ('-created_at',)
-
-    # ------------------------------------------------------------------ #
-    # permission helpers
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _get_profile(user):
-        if not getattr(user, 'is_authenticated', False):
-            return None
-        try:
-            return user.science_publishing_profile
-        except UserProfile.DoesNotExist:  # pragma: no cover - profile отсутствует
-            return None
-
-    def _user_has_role(self, user, role_code):
-        profile = self._get_profile(user)
-        if not profile:
-            return False
-        return profile.roles.filter(code=role_code).exists()
-
-    @staticmethod
-    def _parse_pk(field, raw_value):
-        if raw_value in (None, ''):
-            return None
-        try:
-            return field.to_python(raw_value)
-        except (TypeError, ValueError, DjangoValidationError):
-            return None
-
-    def _assert_can_create_task(self, validated_data, sender):
-        if not getattr(sender, 'is_authenticated', False):
-            raise PermissionDenied('Не удалось определить пользователя.')
-
-        work = validated_data.get('work')
-        if not isinstance(work, Work):
-            raise ValidationError({'work': 'Выберите корректную работу.'})
-
-        recipient = validated_data.get('recipient')
-        if recipient is None:
-            raise ValidationError({'recipient': 'Укажите получателя задачи.'})
-
-        is_privileged = sender.is_superuser or sender.is_staff or self._user_has_role(sender, EditorialRole.Code.CHIEF_EDITOR)
-        if not is_privileged:
-            raise PermissionDenied('Создавать задачи для авторов может только главный редактор.')
-
-        if work.status not in self.author_task_allowed_statuses:
-            raise ValidationError({'detail': 'Для текущего статуса работы нельзя создавать новые задачи автору.'})
-
-        author_user = getattr(work.profile, 'user', None)
-        if not author_user or recipient != author_user:
-            raise ValidationError({'recipient': 'Задачу можно отправить только автору выбранной работы.'})
-
-    def get_queryset(self):
-        base_queryset = super().get_queryset().prefetch_related(
-            'messages',
-            'messages__author',
-            'messages__author__science_publishing_profile',
-            'messages__author__science_publishing_profile__roles',
-        )
-        if self.is_swagger_fake_view():
-            return base_queryset.none()
-
-        user = self.request.user
-        if user.is_superuser or user.is_staff:
-            queryset = base_queryset
-        else:
-            profile = getattr(user, 'science_publishing_profile', None)
-            author_work_ids = []
-            if profile:
-                author_work_ids = list(profile.works.values_list('id', flat=True))
-
-            queryset = base_queryset.filter(
-                models.Q(recipient=user)
-                | models.Q(sender=user)
-                | models.Q(work_id__in=author_work_ids)
-            ).distinct()
-
-        # Preserve queryset without activity filter for contextual lookups
-        accessible_queryset = queryset
-
-        # Show only active (open) tasks by default
-        queryset = queryset.filter(closed_at__isnull=True)
-
-        params = self.request.query_params
-
-        target_work_id = None
-        work_param = params.get('work')
-        if work_param:
-            target_work_id = self._parse_pk(Work._meta.pk, work_param)
-
-        selected_task_param = params.get('selected_task')
-        if target_work_id is None and selected_task_param:
-            task_id = self._parse_pk(EditorialTask._meta.pk, selected_task_param)
-            if task_id is not None:
-                # include closed tasks when deriving context
-                task = accessible_queryset.filter(pk=task_id).values('work_id').first()
-                if task:
-                    target_work_id = task['work_id']
-
-        if target_work_id is not None:
-            queryset = queryset.filter(work_id=target_work_id)
-
-        author_query = params.get('author')
-        if author_query:
-            queryset = queryset.filter(
-                models.Q(work__profile__display_name__icontains=author_query)
-                | models.Q(work__profile__user__username__icontains=author_query)
-                | models.Q(work__profile__user__first_name__icontains=author_query)
-                | models.Q(work__profile__user__last_name__icontains=author_query)
-            )
-
-        work_title = params.get('work_title')
-        if work_title:
-            queryset = queryset.filter(work__discipline_name__icontains=work_title)
-
-        subject_query = params.get('subject')
-        if subject_query:
-            queryset = queryset.filter(subject__icontains=subject_query)
-
-        publication_kind = params.get('publication_kind')
-        if publication_kind:
-            queryset = queryset.filter(work__publication_kind=publication_kind)
-
-        guideline_subtype = params.get('guideline_subtype')
-        if guideline_subtype:
-            queryset = queryset.filter(work__guideline_subtype=guideline_subtype)
-
-        training_form = params.get('training_form')
-        if training_form:
-            queryset = queryset.filter(work__training_form=training_form)
-
-        year = params.get('year')
-        if year:
-            try:
-                queryset = queryset.filter(work__year=int(year))
-            except (TypeError, ValueError):
-                pass
-
-        status_param = params.get('status')
-        if status_param:
-            queryset = queryset.filter(status=status_param)
-
-        assigned_only = params.get('assigned')
-        if assigned_only and assigned_only.lower() in ('1', 'true', 'yes', 'on'):
-            queryset = queryset.filter(recipient=user)
-
-        def _parse_datetime(value):
-            for fmt in ('%Y-%m-%d', '%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S'):
-                try:
-                    return datetime.strptime(value, fmt)
-                except (TypeError, ValueError):
-                    continue
-            return None
-
-        created_from = _parse_datetime(params.get('created_from'))
-        if created_from:
-            queryset = queryset.filter(created_at__gte=created_from)
-
-        created_to = _parse_datetime(params.get('created_to'))
-        if created_to:
-            queryset = queryset.filter(created_at__lte=created_to)
-
-        updated_from = _parse_datetime(params.get('updated_from'))
-        if updated_from:
-            queryset = queryset.filter(updated_at__gte=updated_from)
-
-        updated_to = _parse_datetime(params.get('updated_to'))
-        if updated_to:
-            queryset = queryset.filter(updated_at__lte=updated_to)
-
-        return queryset
-
-    def perform_create(self, serializer):
-        if self.is_swagger_fake_view():
-            serializer.save()
-            return
-
-        sender = self.request.user
-        self._assert_can_create_task(serializer.validated_data, sender)
-        serializer.save(sender=sender, status=EditorialTask.Status.NEW)
-
-    def _can_access_task(self, task, user):
-        if not getattr(user, 'is_authenticated', False):
-            return False
-        if user.is_superuser or user.is_staff:
-            return True
-        if task.recipient_id == user.id or task.sender_id == user.id:
-            return True
-        author_user = getattr(task.work.profile, 'user', None)
-        return author_user and author_user.id == user.id
-
-    @action(detail=True, methods=['get', 'post'], url_path='messages')
-    def messages(self, request, pk=None):
-        task = self.get_object()
-        if request.method.lower() == 'get':
-            serializer = EditorialTaskMessageSerializer(task.messages.all(), many=True)
-            return Response(serializer.data)
-
-        if self.is_swagger_fake_view():
-            return Response({})
-
-        if not self._can_access_task(task, request.user):
-            raise PermissionDenied('Нет доступа к этой задаче.')
-
-        content = (request.data.get('content') or '').strip()
-        if not content:
-            raise ValidationError({'content': 'Сообщение не может быть пустым.'})
-
-        message = EditorialTaskMessage.objects.create(task=task, author=request.user, content=content)
-
-        if task.recipient_id == request.user.id:
-            updated_status = EditorialTask.Status.IN_PROGRESS
-        else:
-            updated_status = EditorialTask.Status.NEW
-        if task.status != updated_status:
-            task.status = updated_status
-            task.updated_at = timezone.now()
-            task.save(update_fields=['status', 'updated_at'])
-
-        serializer = EditorialTaskMessageSerializer(message)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)

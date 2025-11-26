@@ -8,9 +8,7 @@ from src.modules.science_publishing.models import (
     UserProfile,
     UserProfileRole,
     Work,
-    EditorialTask,
 )
-from django.utils import timezone
 
 
 class SciencePublishingFlowTests(APITestCase):
@@ -48,12 +46,6 @@ class SciencePublishingFlowTests(APITestCase):
         role, _ = EditorialRole.objects.get_or_create(code=code, defaults={'name': default_name})
         UserProfileRole.objects.get_or_create(profile=profile, role=role)
 
-    @staticmethod
-    def _extract_results(payload):
-        if isinstance(payload, dict):
-            return payload.get('results', [])
-        return payload
-
     def _create_work(self):
         payload = {
             'discipline_name': 'Тестовая работа',
@@ -74,10 +66,6 @@ class SciencePublishingFlowTests(APITestCase):
 
     def test_full_publication_cycle(self):
         work = self._create_work()
-
-        # Задача создаётся автоматически у главного редактора
-        chief_tasks = EditorialTask.objects.filter(work=work, recipient=self.chief)
-        self.assertEqual(chief_tasks.count(), 1)
 
         # Главред назначает редактора
         self.client.force_authenticate(self.chief)
@@ -105,57 +93,44 @@ class SciencePublishingFlowTests(APITestCase):
         work.refresh_from_db()
         self.assertEqual(work.status, Work.Status.PUBLISHED)
 
-    def test_tasks_scope_per_user(self):
+        # Проверяем, что чат содержит записи по ключевым шагам
+        self.client.force_authenticate(self.chief)
+        chat_resp = self.client.get(f'{self.base_path}/works/{work.id}/chat/')
+        self.assertEqual(chat_resp.status_code, status.HTTP_200_OK, chat_resp.content)
+        messages = chat_resp.json()
+        self.assertGreaterEqual(len(messages), 3)
+        actions = {msg.get('metadata', {}).get('action') for msg in messages}
+        self.assertIn('assign_editor', actions)
+        self.assertIn('editor_approve', actions)
+        self.assertIn('chief_approve', actions)
+
+    def test_chat_visibility_for_roles(self):
         work = self._create_work()
+        outsider = get_user_model().objects.create_user(username='outsider', password='123')
 
-        # Главред видит задачу
+        # Назначаем редактора, чтобы чат и статус обновились
         self.client.force_authenticate(self.chief)
-        resp = self.client.get(f'{self.base_path}/tasks/')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        chief_tasks = self._extract_results(resp.json())
-        self.assertTrue(any(item['work'] == str(work.id) for item in chief_tasks))
+        assign_url = f'{self.base_path}/works/{work.id}/assign-editor/'
+        self.client.post(assign_url, {'editor_profile': str(self.editor_profile.id)}, format='json')
 
-        # Автор видит только свои задачи (по своим работам)
+        # Редактор пишет сообщение
+        self.client.force_authenticate(self.editor)
+        post_resp = self.client.post(
+            f'{self.base_path}/works/{work.id}/chat/',
+            {'content': 'Привет, посмотрел черновик.'},
+            format='json',
+        )
+        self.assertEqual(post_resp.status_code, status.HTTP_201_CREATED, post_resp.content)
+
+        # Автор видит переписку
         self.client.force_authenticate(self.author)
-        resp = self.client.get(f'{self.base_path}/tasks/')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        data = self._extract_results(resp.json())
-        self.assertTrue(any(item['work'] == str(work.id) for item in data))
-
-    def test_tasks_filtered_by_selected_task_even_when_closed(self):
-        work_primary = self._create_work()
-        work_secondary = self._create_work()
-
-        open_task_primary = EditorialTask.objects.create(
-            work=work_primary,
-            recipient=self.chief,
-            sender=self.author,
-            subject='Primary open task',
-            status=EditorialTask.Status.NEW,
-        )
-        closed_task_primary = EditorialTask.objects.create(
-            work=work_primary,
-            recipient=self.chief,
-            sender=self.author,
-            subject='Primary closed task',
-            status=EditorialTask.Status.DONE,
-            closed_at=timezone.now(),
-        )
-        open_task_secondary = EditorialTask.objects.create(
-            work=work_secondary,
-            recipient=self.chief,
-            sender=self.author,
-            subject='Secondary open task',
-            status=EditorialTask.Status.NEW,
+        chat_resp = self.client.get(f'{self.base_path}/works/{work.id}/chat/')
+        self.assertEqual(chat_resp.status_code, status.HTTP_200_OK, chat_resp.content)
+        self.assertTrue(
+            any(msg.get('content') == 'Привет, посмотрел черновик.' for msg in chat_resp.json())
         )
 
-        self.client.force_authenticate(self.chief)
-        response = self.client.get(
-            f'{self.base_path}/tasks/',
-            {'selected_task': str(closed_task_primary.id)},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        results = self._extract_results(response.json())
-        returned_ids = {item['id'] for item in results}
-        self.assertIn(str(open_task_primary.id), returned_ids)
-        self.assertNotIn(str(open_task_secondary.id), returned_ids)
+        # Посторонний пользователь не имеет доступа
+        self.client.force_authenticate(outsider)
+        forbidden = self.client.get(f'{self.base_path}/works/{work.id}/chat/')
+        self.assertEqual(forbidden.status_code, status.HTTP_403_FORBIDDEN)
