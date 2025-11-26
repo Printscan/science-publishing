@@ -26,6 +26,18 @@ class SciencePublishingAPI {
     return apiClient.get(this.base.myWorks, params);
   }
 
+  async listMyDrafts(params = {}) {
+    return apiClient.get(this.base.myDrafts, params);
+  }
+
+  async listMyPublished(params = {}) {
+    return apiClient.get(this.base.myPublished, params);
+  }
+
+  async listPublications(params = {}) {
+    return apiClient.get(this.base.publications, params);
+  }
+
   async createWork(payload = {}) {
     const form = new FormData();
     const directFields = [
@@ -118,36 +130,130 @@ class SciencePublishingAPI {
     return apiClient.post(`${this.base.works}${workId}/chief-approve/`, payload);
   }
 
+  async forcePublish(workId, payload = {}) {
+    return apiClient.post(`${this.base.works}${workId}/force-publish/`, payload);
+  }
+
+  async listWorkChatMessages(workId) {
+    if (!workId) throw new Error('workId is required');
+    return apiClient.get(`${this.base.works}${workId}/chat/`);
+  }
+
+  async postWorkChatMessage(workId, payload = {}) {
+    if (!workId) throw new Error('workId is required');
+    return apiClient.post(`${this.base.works}${workId}/chat/`, payload);
+  }
+
+  // Compatibility wrappers: task endpoints are now backed by a single chat per work.
   async listTasks(params = {}) {
-    return apiClient.get(this.base.tasks, params);
+    const workId = params?.work;
+    if (!workId) {
+      return { data: [] };
+    }
+    const [messagesResp, workResp] = await Promise.allSettled([
+      this.listWorkChatMessages(workId),
+      this.getWork(workId),
+    ]);
+    const rawMessages =
+      messagesResp.status === 'fulfilled'
+        ? messagesResp.value?.data ?? messagesResp.value ?? []
+        : [];
+    const messages = Array.isArray(rawMessages) ? rawMessages : rawMessages?.results ?? [];
+    const workData =
+      workResp.status === 'fulfilled'
+        ? workResp.value?.data ?? workResp.value
+        : { id: workId };
+    const recipient =
+      workData?.current_editor_user_id ||
+      workData?.current_editor ||
+      workData?.current_editor_id ||
+      workData?.current_editor?.id ||
+      null;
+    const sender = workData?.profile_user_id || null;
+    return {
+      data: [
+        {
+          id: workId,
+          work: workId,
+          subject: workData?.discipline_name || workData?.publication_kind_display || 'Переписка',
+          status: workData?.status || 'chat',
+          status_display: workData?.status_display || workData?.status,
+          recipient,
+          sender,
+          work_title: workData?.discipline_name,
+          work_publication_kind_display: workData?.publication_kind_display,
+          work_guideline_subtype_display: workData?.guideline_subtype_display,
+          work_training_form_display: workData?.training_form_display,
+          work_year: workData?.year,
+          work_author_display_name: workData?.profile_display_name,
+          work_author_username: workData?.profile_username,
+          created_at: messages[0]?.created_at || workData?.created_at,
+          updated_at: messages[messages.length - 1]?.created_at || workData?.updated_at,
+          messages,
+        },
+      ],
+    };
   }
 
   async getTask(taskId) {
-    return apiClient.get(`${this.base.tasks}${taskId}/`);
+    if (!taskId) throw new Error('taskId is required');
+    const response = await this.listTasks({ work: taskId });
+    const list = response?.data ?? response;
+    const task =
+      (Array.isArray(list) && list[0]) ||
+      (Array.isArray(list?.results) && list.results[0]) ||
+      list?.[0] ||
+      list;
+    return { data: task };
   }
 
   async createTask(payload = {}) {
-    return apiClient.post(this.base.tasks, payload);
+    if (!payload?.work) {
+      throw new Error('work is required to start chat');
+    }
+    const message = payload.message || payload.subject || '';
+    if (message) {
+      await this.postWorkChatMessage(payload.work, { content: message });
+    }
+    return this.listTasks({ work: payload.work });
   }
 
-  async deleteTask(taskId) {
-    return apiClient.delete(`${this.base.tasks}${taskId}/`);
+  async deleteTask() {
+    return { data: {} };
   }
 
   async closeTask(taskId, payload = {}) {
-    return apiClient.post(`${this.base.tasks}${taskId}/close/`, payload);
+    if (!taskId) return { data: {} };
+    if (payload?.message) {
+      await this.postWorkChatMessage(taskId, { content: payload.message });
+    }
+    return this.getTask(taskId);
+  }
+
+  async submitTaskForReview(taskId, payload = {}) {
+    if (!taskId) return { data: {} };
+    if (payload?.message) {
+      await this.postWorkChatMessage(taskId, { content: payload.message });
+    }
+    return this.getTask(taskId);
   }
 
   async postTaskMessage(taskId, payload = {}) {
-    return apiClient.post(`${this.base.tasks}${taskId}/messages/`, payload);
+    if (!taskId) throw new Error('taskId is required');
+    return this.postWorkChatMessage(taskId, payload);
   }
 
   async updateTask(taskId, payload = {}) {
-    return apiClient.patch(`${this.base.tasks}${taskId}/`, payload);
+    if (!taskId) throw new Error('taskId is required');
+    if (payload?.message) {
+      await this.postWorkChatMessage(taskId, { content: payload.message });
+    }
+    return this.getTask(taskId);
   }
 
   async listTaskMessages(taskId) {
-    return apiClient.get(`${this.base.tasks}${taskId}/messages/`);
+    if (!taskId) throw new Error('taskId is required');
+    return this.listWorkChatMessages(taskId);
   }
 
   async fetchProfileByUsername(username) {

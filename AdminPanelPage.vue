@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="admin-panel container-fluid py-4">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
       <div>
@@ -242,14 +242,6 @@
                           @click="openAssignModal(work)"
                         >
                           {{ work.current_editor ? 'Сменить редактора' : 'Назначить редактора' }}
-                        </button>
-                        <button
-                          v-if="canCreateAuthorTask(work)"
-                          type="button"
-                          class="btn btn-sm btn-outline-secondary"
-                          @click="openAuthorTaskModal(work)"
-                        >
-                          Задача автору
                         </button>
                         <button
                           v-if="canRequestChanges(work)"
@@ -542,8 +534,10 @@ const trainingForms = [
 ];
 const ASSIGNABLE_STATUSES = new Set(['pending_chief_review', 'in_editor_review', 'waiting_for_author', 'ready_for_chief_approval']);
 
-const AUTHOR_TASK_STATUSES = new Set(['pending_chief_review', 'in_editor_review', 'waiting_for_author', 'ready_for_chief_approval']);
-
+const AUTHOR_TASK_STATUSES = new Set(['pending_chief_review', 'in_editor_review', 'waiting_for_author', 'ready_for_chief_approval']);
+
+
+
 const activeTab = ref('users');
 
 const roles = ref([]);
@@ -601,8 +595,10 @@ const isCreatingAuthorTask = ref(false);
 
 const authorTaskLoadingRecipient = ref(false);
 
-const authorProfileCache = reactive({});
-
+const authorProfileCache = reactive({});
+
+
+
 const changesModalRef = ref(null);
 let changesModalInstance;
 const changesWorkTarget = ref(null);
@@ -610,7 +606,7 @@ const changesMessage = ref('');
 const isSubmittingChanges = ref(false);
 
 const isAllowed = computed(() =>
-  currentProfile.value?.roles?.some((role) => ['administrator', 'chief_editor'].includes(role.code))
+  currentProfile.value?.roles?.some((role) => role.code === 'administrator')
 );
 const isChiefEditor = computed(() =>
   currentProfile.value?.roles?.some((role) => role.code === 'chief_editor')
@@ -895,8 +891,10 @@ const submitAuthorTask = async () => {
   } finally {
     isCreatingAuthorTask.value = false;
   }
-};
-
+};
+
+
+
 const openChangesModal = (work) => {
   changesWorkTarget.value = work;
   changesMessage.value = '';

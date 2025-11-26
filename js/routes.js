@@ -5,7 +5,7 @@ export default {
     component: '@/modules/science-publishing/ParentLayout.vue',
     redirect: 'SciencePublishingProfile',
     meta: {
-      title: 'Научные публикации',
+      title: 'Science publishing',
       requiresAuth: true,
     },
   },
@@ -14,7 +14,7 @@ export default {
     path: '/science-publishing/profile',
     component: '@/modules/science-publishing/ProfilePage.vue',
     meta: {
-      title: 'Профиль редакции',
+      title: 'Profile',
       requiresAuth: true,
     },
   },
@@ -23,7 +23,7 @@ export default {
     path: '/science-publishing/submit',
     component: '@/modules/science-publishing/WorkSubmitPage.vue',
     meta: {
-      title: 'Подача работы',
+      title: 'Submit work',
       requiresAuth: true,
     },
   },
@@ -32,7 +32,7 @@ export default {
     path: '/science-publishing/dev-roles',
     component: '@/modules/science-publishing/DevRolePage.vue',
     meta: {
-      title: 'Управление ролями (DEV)',
+      title: 'Roles (dev)',
       requiresAuth: true,
     },
   },
@@ -41,7 +41,7 @@ export default {
     path: '/science-publishing/tasks',
     component: '@/modules/science-publishing/TasksPage.vue',
     meta: {
-      title: 'Задачи редакции',
+      title: 'Tasks',
       requiresAuth: true,
     },
   },
@@ -50,7 +50,7 @@ export default {
     path: '/science-publishing/admin',
     component: '@/modules/science-publishing/AdminPanelPage.vue',
     meta: {
-      title: 'Администрирование',
+      title: 'Admin',
       requiresAuth: true,
     },
   },
@@ -59,9 +59,17 @@ export default {
     path: '/science-publishing/drafts',
     component: '@/modules/science-publishing/DraftsPage.vue',
     meta: {
-      title: 'Черновики',
+      title: 'Drafts',
+      requiresAuth: true,
+    },
+  },
+  SciencePublishingPublications: {
+    name: 'SciencePublishingPublications',
+    path: '/science-publishing/publications',
+    component: '@/modules/science-publishing/PublicationsPage.vue',
+    meta: {
+      title: 'Publications',
       requiresAuth: true,
     },
   },
 };
-

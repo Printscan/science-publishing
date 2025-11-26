@@ -18,6 +18,10 @@
           "name": "Черновики"
         },
         {
+          "routeName": "SciencePublishingPublications",
+          "name": "Публикации"
+        },
+        {
           "routeName": "SciencePublishingTasks",
           "name": "Задачи редакции"
         },

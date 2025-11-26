@@ -1,5 +1,8 @@
 <template>
-  <div class="tasks-page container-fluid py-4">
+  <div v-if="accessDenied" class="alert alert-warning m-4">
+    Нет доступа к задачам редакции.
+  </div>
+  <div v-else class="tasks-page container-fluid py-4">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
       <div>
         <h2 class="page-title mb-0">Задачи редакции</h2>
@@ -7,7 +10,7 @@
           Отслеживайте назначения, запросы правок и статусы работ в одном списке.
         </p>
       </div>
-      <button class="btn btn-outline-primary d-inline-flex align-items-center gap-2" :disabled="loading" @click="loadTasks">
+      <button class="btn btn-outline-primary d-inline-flex align-items-center gap-2" :disabled="loading" @click="loadWorks">
         <RefreshCcw size="16" />
         <span>Обновить</span>
       </button>
@@ -48,20 +51,10 @@
               />
             </div>
             <div class="col-12 col-md-4 col-xl-3">
-              <label class="form-label" for="filters-subject">Тема задачи</label>
-              <input
-                id="filters-subject"
-                v-model="filters.subject"
-                type="text"
-                class="form-control"
-                placeholder="Например, правки"
-              />
-            </div>
-            <div class="col-12 col-md-4 col-xl-3">
               <label class="form-label" for="filters-status">Статус</label>
               <select id="filters-status" v-model="filters.status" class="form-select">
                 <option value="">Все статусы</option>
-                <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+                <option v-for="option in workStatusOptions" :key="option.value" :value="option.value">
                   {{ option.label }}
                 </option>
               </select>
@@ -105,20 +98,6 @@
                 placeholder="Например, 2025"
               />
             </div>
-            <div class="col-12 col-md-4 col-xl-3">
-              <label class="form-label" for="filters-created-from">Создана с</label>
-              <input id="filters-created-from" v-model="filters.createdFrom" type="date" class="form-control" />
-            </div>
-            <div class="col-12 col-md-4 col-xl-3">
-              <label class="form-label" for="filters-created-to">Создана до</label>
-              <input id="filters-created-to" v-model="filters.createdTo" type="date" class="form-control" />
-            </div>
-            <div class="col-12 col-md-4 col-xl-3 align-self-end">
-              <div class="form-check">
-                <input id="filters-assigned" v-model="filters.assignedOnly" type="checkbox" class="form-check-input" />
-                <label class="form-check-label" for="filters-assigned"> Только мои задачи </label>
-              </div>
-            </div>
           </div>
           <div class="d-flex justify-content-end gap-2 mt-3">
             <button type="button" class="btn btn-outline-secondary" :disabled="loading" @click="resetFilters">
@@ -140,67 +119,64 @@
       </div>
 
       <div v-else>
-        <div v-if="tasks.length === 0" class="alert alert-light border text-center py-4">
-          Задачи не найдены по выбранным параметрам.
+        <div v-if="works.length === 0" class="alert alert-light border text-center py-4">
+          Черновики не найдены по выбранным параметрам.
         </div>
         <div v-else class="task-list d-grid">
           <article
-            v-for="task in tasks"
-            :key="task.id"
+            v-for="work in works"
+            :key="work.id"
             class="task-card card shadow-sm"
             role="button"
             tabindex="0"
-            @click="openTask(task)"
-            @keydown.enter.prevent="openTask(task)"
+            @click="openWork(work)"
+            @keydown.enter.prevent="openWork(work)"
           >
             <div class="card-body">
               <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                 <div>
-                  <h5 class="card-title mb-1">{{ task.subject || 'Без названия' }}</h5>
+                  <h5 class="card-title mb-1">{{ work.discipline_name || 'Без названия' }}</h5>
                   <div class="small text-muted">
-                    Работа: {{ task.work_title || '—' }}
-                    <template v-if="task.work_year"> ({{ task.work_year }})</template>
+                    Автор: {{ work.profile_display_name || work.profile_username || '—' }}
                   </div>
                   <div class="small text-muted">
-                    Автор: {{ task.work_author_display_name || task.work_author_username || '—' }}
+                    Тип: {{ work.publication_kind_display || '—' }}
                   </div>
                 </div>
                 <div class="text-end">
-                  <span class="badge" :class="statusBadgeClass(task.status)">
-                    {{ task.status_display || statusLabel(task.status) }}
+                  <span class="badge" :class="workStatusBadge(work.status)">
+                    {{ workStatusLabel(work.status) }}
                   </span>
-                  <div class="small text-muted mt-1">{{ formatDateTime(task.updated_at || task.created_at) }}</div>
+                  <div v-if="work.current_editor_display_name" class="small text-muted mt-1">
+                    Редактор: {{ work.current_editor_display_name }}
+                  </div>
+                  <div class="small text-muted mt-1">{{ formatDateTime(work.updated_at || work.created_at) }}</div>
                 </div>
               </div>
 
               <div class="row row-cols-1 row-cols-md-2 gy-1 gx-3 text-muted small mt-3">
                 <div>
-                  <strong>Тип публикации:</strong>
-                  <span>{{ task.work_publication_kind_display || '—' }}</span>
-                </div>
-                <div>
                   <strong>Подтип:</strong>
-                  <span>{{ task.work_guideline_subtype_display || '—' }}</span>
+                  <span>{{ work.guideline_subtype_display || '—' }}</span>
                 </div>
                 <div>
                   <strong>Форма обучения:</strong>
-                  <span>{{ task.work_training_form_display || '—' }}</span>
+                  <span>{{ work.training_form_display || '—' }}</span>
                 </div>
-                <div>
-                  <strong>Адресат:</strong>
-                  <span>{{ task.recipient_username || '—' }}</span>
-                </div>
-              </div>
-
-              <div v-if="task.message" class="task-message mt-3">
-                <strong>Комментарий:</strong>
-                <p class="mb-0">{{ task.message }}</p>
               </div>
 
               <div class="mt-3 d-flex flex-wrap gap-2">
-                <button class="btn btn-outline-secondary btn-sm" type="button" @click.stop="goToDrafts(work)">
-                  Открыть черновики
-                </button>
+                <a
+                  v-if="work.document"
+                  :href="workDocumentUrl(work)"
+                  class="btn btn-sm btn-outline-primary"
+                  target="_blank"
+                  rel="noopener"
+                  @click.stop
+                >
+                  Скачать файл
+                </a>
+                <span v-else class="text-muted small">Файл не прикреплён</span>
               </div>
             </div>
           </article>
@@ -217,30 +193,70 @@
         @click.self="closeTask"
       >
         <div class="task-detail card shadow-lg">
-          <div class="task-detail__header d-flex align-items-start justify-content-between mb-3">
-            <div class="me-3">
+          <div class="task-detail__header d-flex align-items-start justify-content-between mb-3 flex-wrap gap-3">
+            <div class="me-3 flex-grow-1">
               <h4 class="mb-1">
-                {{ detailState.work?.title || detailState.task?.subject || 'Детали задачи' }}
+                {{
+                  detailState.work?.discipline_name ||
+                  detailState.work?.title ||
+                  'Детали работы'
+                }}
               </h4>
-              <div class="text-muted small">
-                {{ detailState.work?.author_display_name || detailState.task?.work_author_display_name || detailState.task?.work_author_username || '—' }}
-              </div>
+              <div class="text-muted small">{{ taskAuthorDisplay }}</div>
             </div>
-            <button type="button" class="btn-close" aria-label="Закрыть" @click="closeTask"></button>
+            <div class="d-flex flex-wrap align-items-start gap-2">
+              <a
+                v-if="detailState.work?.document"
+                :href="workDocumentUrl(detailState.work)"
+                target="_blank"
+                rel="noopener"
+                class="btn btn-outline-danger"
+              >
+                Скачать работу
+              </a>
+              <button type="button" class="btn-close ms-1" aria-label="Закрыть" @click="closeTask"></button>
+            </div>
           </div>
           <div class="task-detail__body card-body pt-0">
             <div v-if="detailState.loading" class="text-center py-5">
               <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Загружаем задачу...</span>
+                <span class="visually-hidden">Загружаем работу...</span>
               </div>
             </div>
             <div v-else-if="detailState.error" class="alert alert-danger mb-0">
               {{ detailState.error }}
             </div>
-            <div v-else-if="!detailState.task" class="alert alert-light border mb-0">
-              Нет данных по задаче.
-            </div>
             <div v-else class="task-detail__layout">
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                <button
+                  v-if="isChiefEditor"
+                  type="button"
+                  class="btn btn-success"
+                  :disabled="detailState.actionLoading"
+                  @click="publishWork"
+                >
+                  <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Опубликовать
+                </button>
+                <button
+                  v-else-if="canSendToChiefWork"
+                  type="button"
+                  class="btn btn-outline-primary"
+                  :disabled="detailState.actionLoading"
+                  @click="sendToChiefWork"
+                >
+                  <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Отправить главному редактору
+                </button>
+                <button
+                  v-if="canAssignEditorForWork"
+                  type="button"
+                  class="btn btn-outline-primary"
+                  @click="openAssignModal"
+                >
+                  {{ detailState.work?.current_editor_display_name ? 'Сменить редактора' : 'Назначить редактора' }}
+                </button>
+              </div>
               <div class="task-detail__tabs">
                 <button
                   type="button"
@@ -265,38 +281,33 @@
 
               <div ref="detailScrollRef" class="task-detail__content">
                 <div v-if="detailState.activeTab === 'chat'" class="task-chat">
-                  <div
-                    v-for="task in orderedTasks"
-                    :key="task.id"
-                    class="task-chat__conversation"
-                  >
+                  <div v-if="!detailState.chatMessages.length" class="alert alert-light border text-center mb-0">
+                    Переписка пока пуста.
+                  </div>
+                  <div v-else class="task-chat__conversation">
                     <div class="task-chat__timeline">
-                      <span class="task-chat__dot" :class="statusAccentClass(task.status)"></span>
+                      <span class="task-chat__dot" :class="workStatusAccentClass(detailState.work?.status)"></span>
                     </div>
                     <div class="task-chat__content">
                       <header class="task-chat__header">
                         <div>
-                          <div class="task-chat__subject">{{ task.subject || 'Без темы' }}</div>
+                          <div class="task-chat__subject">{{ detailState.work?.discipline_name || 'Без темы' }}</div>
                           <div class="task-chat__meta text-muted small">
-                            <span>{{ taskSenderName(task) }}</span>
+                            <span>{{ currentEditorDisplay }}</span>
                             <span class="task-chat__divider" aria-hidden="true">•</span>
-                            <span>{{ formatDateTime(task.created_at) }}</span>
+                            <span>{{ formatDateTime(detailState.work?.updated_at || detailState.work?.created_at) }}</span>
                           </div>
                         </div>
-                        <span class="badge task-chat__status" :class="statusBadgeClass(task.status)">
-                          {{ task.status_display || statusLabel(task.status) }}
+                        <span class="badge task-chat__status" :class="statusBadgeClass(detailState.work?.status)">
+                          {{ statusLabel(detailState.work?.status) }}
                         </span>
                       </header>
 
-                      <div v-if="task.message" class="task-chat__lead">
-                        {{ task.message }}
-                      </div>
-
-                      <div v-if="task.messages && task.messages.length" class="chat-thread">
+                      <div class="chat-thread">
                         <div
-                          v-for="message in task.messages"
+                          v-for="message in detailState.chatMessages"
                           :key="message.id || message.created_at"
-                          :class="['chat-entry', messageAlignmentClass(task, message)]"
+                          :class="['chat-entry', messageAlignmentClass(message)]"
                         >
                           <div class="chat-entry__heading">
                             <div class="chat-entry__name">{{ messageAuthorName(message) }}</div>
@@ -324,38 +335,6 @@
                                 </li>
                               </ul>
                             </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div v-if="taskSummaries[task.id]" class="chat-entry chat-entry--summary">
-                        <div class="chat-entry__heading">
-                          <div class="chat-entry__name">{{ taskRecipientName(task) }}</div>
-                          <span class="chat-entry__time text-muted small">{{ formatDateTime(task.closed_at || task.updated_at) }}</span>
-                        </div>
-                        <div class="chat-entry__body">
-                          <p v-if="taskSummaries[task.id].note" class="mb-2">
-                            {{ taskSummaries[task.id].note }}
-                          </p>
-                          <div v-if="taskSummaries[task.id].changes && taskSummaries[task.id].changes.length" class="chat-entry__changes">
-                            <div class="chat-entry__subtitle text-muted small">Итоги</div>
-                            <ul class="chat-change-list">
-                            <li v-for="change in taskSummaries[task.id].changes" :key="change.field || change.name || change.label">
-                              <strong>{{ changeLabel(change) }}:</strong>
-                              <span class="text-muted ms-1">было {{ formatChangeValue(changeOld(change)) }}</span>
-                              <span class="ms-1">стало {{ formatChangeValue(changeNew(change)) }}</span>
-                            </li>
-                          </ul>
-                        </div>
-                          <div v-if="taskSummaries[task.id].attachments && taskSummaries[task.id].attachments.length" class="chat-entry__attachments">
-                            <div class="chat-entry__subtitle text-muted small">Файлы</div>
-                            <ul class="chat-attachment-list">
-                              <li v-for="attachment in taskSummaries[task.id].attachments" :key="attachment.url || attachment.absolute_url">
-                                <a :href="attachment.absolute_url || attachment.url" target="_blank" rel="noopener">
-                                  {{ attachment.name || attachment.url || 'Файл' }}
-                                </a>
-                              </li>
-                            </ul>
                           </div>
                         </div>
                       </div>
@@ -421,59 +400,8 @@
                 </div>
               </div>
 
-              <section v-if="showTaskActions" class="task-actions-bar">
-                <div class="task-actions d-flex flex-wrap gap-2">
-                  <button
-                    v-if="canApprovePublication"
-                    type="button"
-                    class="btn btn-success"
-                    :disabled="detailState.actionLoading"
-                    @click="approvePublication"
-                  >
-                    <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Утвердить публикацию
-                  </button>
-                  <button
-                    v-if="canSendToChief"
-                    type="button"
-                    class="btn btn-primary"
-                    :disabled="detailState.actionLoading"
-                    @click="sendToChief"
-                  >
-                    <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Отправить главному редактору
-                  </button>
-                  <button
-                    v-if="canRequestChanges"
-                    type="button"
-                    class="btn btn-outline-danger"
-                    :disabled="detailState.actionLoading"
-                    @click="sendBackToAuthor"
-                  >
-                    <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Вернуть на доработку
-                  </button>
-                  <button
-                    v-if="canAssignEditorForWork"
-                    type="button"
-                    class="btn btn-outline-primary"
-                    @click="openAssignModal"
-                  >
-                    Назначить редактора
-                  </button>
-                  <button
-                    v-if="canCreateAuthorTask"
-                    type="button"
-                    class="btn btn-outline-secondary"
-                    @click="openAuthorTaskModal"
-                  >
-                    Назначить новое задание
-                  </button>
-                </div>
-              </section>
-
               <form
-                v-if="showMessageComposer && detailState.activeTab === 'chat'"
+                v-if="detailState.activeTab === 'chat'"
                 class="task-composer"
                 @submit.prevent="sendMessage"
               >
@@ -592,7 +520,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { RefreshCcw, Search } from 'lucide-vue-next';
 import { useRouter } from 'vue-router';
 import { useToast } from 'vue-toastification';
@@ -600,18 +528,24 @@ import { Modal } from 'bootstrap';
 
 import { sciencePublishingAPI } from '@/modules/science-publishing/js/science-publishing.js';
 import { apiClient } from '@/js/api/manager.js';
+import { useScienceAccess } from '@/modules/science-publishing/js/access.js';
 
 const router = useRouter();
 const toast = useToast();
 
-const STATUS_LABELS = {
-  new: 'Новая',
-  in_progress: 'В работе',
-  done: 'Завершена',
-  archived: 'Архивирована',
+const WORK_STATUS_LABELS = {
+  draft: 'Черновик',
+  pending_chief_review: 'На рассмотрении у руководителя',
+  in_editor_review: 'В редакторской проверке',
+  waiting_for_author: 'Ожидает автора',
+  ready_for_chief_approval: 'Готово к утверждению',
+  published: 'Опубликовано',
 };
 
-const statusOptions = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
+const workStatusOptions = [
+  { value: '', label: 'Все статусы' },
+  ...Object.entries(WORK_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+];
 
 const publicationKinds = [
   { value: 'method_guidelines', label: 'Методические рекомендации' },
@@ -633,49 +567,93 @@ const trainingForms = [
   { value: 'part_time', label: 'Заочная' },
   { value: 'mixed', label: 'Очно-заочная' },
 ];
+const { allowed: accessAllowed, ensure: ensureAccess, loading: accessLoading } = useScienceAccess('SciencePublishingTasks');
+const accessDenied = ref(false);
 
-const ASSIGNABLE_STATUSES = new Set(['pending_chief_review', 'in_editor_review', 'waiting_for_author', 'ready_for_chief_approval']);
-const AUTHOR_TASK_STATUSES = new Set(['pending_chief_review', 'in_editor_review', 'waiting_for_author', 'ready_for_chief_approval']);
-
+const ASSIGNABLE_STATUSES = new Set([
+  'draft',
+  'pending_chief_review',
+  'in_editor_review',
+  'waiting_for_author',
+  'ready_for_chief_approval',
+]);
 
 const filters = reactive({
   author: '',
   workTitle: '',
-  subject: '',
   status: '',
   publicationKind: '',
   guidelineSubtype: '',
   trainingForm: '',
   year: '',
-  createdFrom: '',
-  createdTo: '',
-  assignedOnly: false,
 });
 
-const tasks = ref([]);
+const works = ref([]);
 const loading = ref(false);
 const error = ref('');
 
 const profile = ref(null);
 const profileLoading = ref(true);
 
-const allowedRoles = ['editor', 'chief_editor'];
-const currentUserId = computed(() => profile.value?.user || profile.value?.user_id || null);
-const currentProfileId = computed(() => profile.value?.id || profile.value?.profile_id || null);
-const isAllowed = computed(() => {
-  const roles = profile.value?.roles;
-  if (!Array.isArray(roles)) {
-    return false;
+const allowedRoles = ['editor', 'chief_editor', 'administrator'];
+function normalizeId(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' || typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    return value.id || value.user_id || value.user || null;
   }
-  return roles.some((role) => allowedRoles.includes(role.code));
-});
+  return null;
+}
 
-const isChiefEditor = computed(() =>
-  profile.value?.roles?.some((role) => role.code === 'chief_editor')
+const currentUserId = computed(() => normalizeId(profile.value?.user) ?? normalizeId(profile.value?.user_id));
+const currentProfileId = computed(() => profile.value?.id || profile.value?.profile_id || null);
+const normalizeLower = (value) => {
+  if (value === undefined || value === null) return '';
+  try {
+    return value.toString().toLowerCase();
+  } catch {
+    return '';
+  }
+};
+const extractErrorMessage = (err, fallback = 'Не удалось выполнить действие.') => {
+  const data = err?.response?.data;
+  if (typeof data === 'string') return data;
+  const detail = data?.detail || data?.message;
+  if (Array.isArray(detail)) return detail.join(' ');
+  if (detail) return String(detail);
+  const nonFieldErrors = data?.non_field_errors;
+  if (Array.isArray(nonFieldErrors) && nonFieldErrors.length) {
+    return nonFieldErrors.join(' ');
+  }
+  if (data && typeof data === 'object') {
+    const firstFieldError = Object.values(data).find(
+      (value) => typeof value === 'string' || (Array.isArray(value) && value.length)
+    );
+    if (Array.isArray(firstFieldError)) return firstFieldError.join(' ');
+    if (typeof firstFieldError === 'string') return firstFieldError;
+  }
+  if (err?.message) return err.message;
+  return fallback;
+};
+const roleCodes = computed(() =>
+  (profile.value?.roles || [])
+    .map((role) => normalizeLower(role?.code || role || ''))
+    .filter(Boolean)
 );
+const hasRole = (code) => {
+  const target = normalizeLower(code);
+  if (!target) return false;
+  return roleCodes.value.includes(target);
+};
+const isAllowed = computed(() => roleCodes.value.some((code) => allowedRoles.includes(code)));
 
-const isEditor = computed(() =>
-  profile.value?.roles?.some((role) => role.code === 'editor')
+const isChiefEditor = computed(() => hasRole('chief_editor') || hasRole('administrator'));
+
+const isEditor = computed(() => hasRole('editor'));
+
+const currentUserDisplay = computed(() => profile.value?.display_name || profile.value?.user || '');
+const currentUsername = computed(() =>
+  normalizeLower(profile.value?.user || profile.value?.username || '')
 );
 
 const isCurrentEditor = computed(() => {
@@ -689,13 +667,13 @@ const isCurrentEditor = computed(() => {
 });
 
 const detailScrollRef = ref(null);
+let detailRefreshTimer = null;
 
 const detailState = reactive({
   open: false,
   loading: false,
-  task: null,
   work: null,
-  tasks: [],
+  chatMessages: [],
   error: '',
   note: '',
   message: '',
@@ -727,24 +705,36 @@ const isCreatingAuthorTask = ref(false);
 const authorTaskLoadingRecipient = ref(false);
 const authorProfileCache = reactive({});
 
-const canSendToChief = computed(() => {
-  if (!detailState.task || !detailState.work) return false;
-  if (!isEditor.value) return false;
-  if (detailState.task.recipient !== currentUserId.value) return false;
-  return ['in_editor_review', 'waiting_for_author'].includes(detailState.work.status);
-});
-
-const canRequestChanges = computed(() => {
-  if (!detailState.task || !detailState.work) return false;
-  if (!isEditor.value && !isChiefEditor.value) return false;
-  if (!isChiefEditor.value && detailState.task.recipient !== currentUserId.value) return false;
-  return detailState.work.status === 'in_editor_review';
-});
+const canRequestChanges = computed(
+  () =>
+    detailState.work &&
+    (isEditor.value || isChiefEditor.value) &&
+    detailState.work.status === 'in_editor_review'
+);
 
 const currentEditorDisplay = computed(() => detailState.work?.current_editor_display_name || detailState.work?.current_editor_username || 'Не назначен');
+const taskAuthorDisplay = computed(() => {
+  const apiDisplay =
+    detailState.work?.author_display_name ||
+    detailState.work?.author_username ||
+    '';
 
-const workDocumentUrl = computed(() => {
-  const doc = detailState.work?.document;
+  const authorProfileId = detailState.work?.profile;
+  const workAuthorUsername = normalizeLower(detailState.work?.author_username || '');
+
+  if (authorProfileId && currentProfileId.value && String(authorProfileId) === String(currentProfileId.value)) {
+    return currentUserDisplay.value || apiDisplay || '—';
+  }
+
+  if (workAuthorUsername && workAuthorUsername === currentUsername.value && currentUserDisplay.value) {
+    return currentUserDisplay.value;
+  }
+
+  return apiDisplay || '—';
+});
+
+function workDocumentUrl(work) {
+  const doc = work?.document;
   if (!doc) return null;
   try {
     return new URL(doc, apiClient.baseUrl).toString();
@@ -752,7 +742,7 @@ const workDocumentUrl = computed(() => {
     const normalized = doc.startsWith('/') ? doc.slice(1) : doc;
     return `${apiClient.baseUrl}${normalized}`;
   }
-});
+}
 
 watch(
   () => detailState.activeTab,
@@ -765,7 +755,7 @@ watch(
 );
 
 watch(
-  () => detailState.tasks,
+  () => detailState.chatMessages,
   async () => {
     if (detailState.activeTab === 'chat') {
       await nextTick();
@@ -774,148 +764,73 @@ watch(
   }
 );
 
-const orderedTasks = computed(() => {
-  const list = Array.isArray(detailState.tasks) ? [...detailState.tasks] : [];
-  return list.sort((a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0));
-});
-
-const taskSummaries = computed(() => {
-  const summaries = {};
-  (detailState.tasks || []).forEach((task) => {
-    const summary = buildTaskSummary(task);
-    if (summary) {
-      summaries[task.id] = summary;
-    }
-  });
-  return summaries;
-});
-
 const detailAttachments = computed(() => {
   const items = [];
-  const summaries = taskSummaries.value || {};
-  const tasks = Array.isArray(detailState.tasks) ? detailState.tasks : [];
+  const messages = Array.isArray(detailState.chatMessages) ? detailState.chatMessages : [];
+  const workTitle = detailState.work?.discipline_name || 'Без названия';
 
-  tasks.forEach((task, taskIndex) => {
-    if (!task) return;
-    const taskSubject = task.subject || detailState.work?.title || 'Без темы';
-    const statusDisplay = task.status_display || statusLabel(task.status);
-    const senderName = taskSenderName(task);
+  const pushAttachment = (attachment, meta) => {
+    if (!attachment) return;
+    const url = attachment.absolute_url || attachment.url || attachment.file || null;
+    const name =
+      attachment.name ||
+      attachment.filename ||
+      attachment.original_name ||
+      attachment.url ||
+      attachment.absolute_url ||
+      'Файл';
+    const context = meta.context || '';
+    const originLabel = meta.originLabel || 'Комментарий';
+    const author = meta.author || '';
+    const createdAt = meta.createdAt || null;
+    const displayDate = formatDateTime(createdAt);
 
-    const pushAttachment = (attachment, meta) => {
-      if (!attachment) return;
-      const url = attachment.absolute_url || attachment.url || attachment.file || null;
-      const name =
-        attachment.name ||
-        attachment.filename ||
-        attachment.original_name ||
-        attachment.url ||
-        attachment.absolute_url ||
-        'Файл';
-      const context = meta.context || '';
-      const origin = meta.origin || 'message';
-      const originLabel =
-        origin === 'summary'
-          ? 'Итоги задачи'
-          : origin === 'task'
-            ? 'Постановка'
-            : 'Комментарий';
-      const author = meta.author || '';
-      const createdAt = meta.createdAt || null;
-      const displayDate = formatDateTime(createdAt);
+    const keywords = [name, author, originLabel, workTitle, context, displayDate]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
 
-      const keywords = [name, author, originLabel, taskSubject, statusDisplay, context, displayDate]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+    items.push({
+      key: meta.key,
+      name,
+      url,
+      author,
+      createdAt,
+      displayDate,
+      origin: meta.origin || 'message',
+      originLabel,
+      taskSubject: workTitle,
+      statusDisplay: statusLabel(detailState.work?.status),
+      context,
+      keywords,
+    });
+  };
 
-      items.push({
-        key: meta.key,
-        name,
-        url,
-        author,
-        createdAt,
-        displayDate,
-        origin,
-        originLabel,
-        taskSubject,
-        statusDisplay,
-        context,
-        keywords,
+  messages.forEach((message, messageIndex) => {
+    if (!Array.isArray(message.attachments)) return;
+    message.attachments.forEach((attachment, attachmentIndex) => {
+      const key = ['message', message.id || messageIndex, attachmentIndex].join('-');
+      pushAttachment(attachment, {
+        key,
+        origin: 'message',
+        originLabel: 'Комментарий',
+        author: messageAuthorName(message),
+        createdAt: message.created_at,
+        context: message.content || '',
       });
-    };
-
-    if (Array.isArray(task.attachments) && task.attachments.length > 0) {
-      task.attachments.forEach((attachment, attachmentIndex) => {
-        const key = ['task', task.id || taskIndex, attachmentIndex].join('-');
-        pushAttachment(attachment, {
-          key,
-          origin: 'task',
-          author: senderName,
-          createdAt: task.created_at,
-          context: task.message || '',
-        });
-      });
-    }
-
-    if (Array.isArray(task.messages)) {
-      task.messages.forEach((message, messageIndex) => {
-        if (!Array.isArray(message.attachments)) return;
-        message.attachments.forEach((attachment, attachmentIndex) => {
-          const key = ['message', task.id || taskIndex, message.id || messageIndex, attachmentIndex].join('-');
-          pushAttachment(attachment, {
-            key,
-            origin: 'message',
-            author: messageAuthorName(message),
-            createdAt: message.created_at,
-            context: message.content || '',
-          });
-        });
-      });
-    }
-
-    const summary = summaries[task.id];
-    if (summary?.attachments && summary.attachments.length) {
-      summary.attachments.forEach((attachment, attachmentIndex) => {
-        const key = ['summary', task.id || taskIndex, attachmentIndex].join('-');
-        pushAttachment(attachment, {
-          key,
-          origin: 'summary',
-          author: taskRecipientName(task),
-          createdAt: task.closed_at || task.updated_at,
-          context: summary.note || '',
-        });
-      });
-    }
+    });
   });
 
   return items;
 });
 
 const filteredAttachments = computed(() => {
-  const query = detailState.attachmentQuery.trim().toLowerCase();
+  const query = normalizeLower(detailState.attachmentQuery || '').trim();
   if (!query) return detailAttachments.value;
   return detailAttachments.value.filter((item) => item.keywords.includes(query));
 });
 
-const lastOpenTask = computed(() => {
-  const open = orderedTasks.value.filter((task) => !task.closed_at);
-  return open.length ? open[open.length - 1] : null;
-});
-
-const canManageCurrentTask = computed(() => {
-  if (!detailState.task) return false;
-  if (isChiefEditor.value) return true;
-  return detailState.task.recipient === currentUserId.value;
-});
-
-const showTaskActions = computed(() => canManageCurrentTask.value);
-
-const showMessageComposer = computed(() => {
-  if (!canManageCurrentTask.value) return false;
-  return Boolean(
-    lastOpenTask.value && detailState.task && detailState.task.id === lastOpenTask.value.id
-  );
-});
+const showMessageComposer = computed(() => Boolean(detailState.work));
 
 const canAssignEditorForWork = computed(
   () =>
@@ -924,68 +839,93 @@ const canAssignEditorForWork = computed(
     ASSIGNABLE_STATUSES.has(detailState.work.status)
 );
 
-const canCreateAuthorTask = computed(() =>
-  detailState.work?.profile &&
-  AUTHOR_TASK_STATUSES.has(detailState.work.status) &&
-  (isChiefEditor.value || isCurrentEditor.value)
+const canApprovePublication = computed(
+  () => isChiefEditor.value && detailState.work?.status === 'ready_for_chief_approval'
 );
-
-const canApprovePublication = computed(() =>
-  isChiefEditor.value && detailState.work?.status === 'ready_for_chief_approval'
-);
+const canForcePublish = computed(() => isChiefEditor.value);
+const canSendToChiefWork = computed(() => {
+  if (!isEditor.value || !detailState.work) return false;
+  return ['in_editor_review', 'waiting_for_author', 'pending_chief_review'].includes(
+    detailState.work.status
+  );
+});
 
 function statusLabel(status) {
-  return STATUS_LABELS[status] || status || '—';
+  return workStatusLabel(status);
 }
 
 function statusBadgeClass(status) {
+  return workStatusBadge(status);
+}
+
+function startDetailAutoRefresh() {
+  stopDetailAutoRefresh();
+  detailRefreshTimer = setInterval(() => {
+    if (detailState.open && detailState.work?.id) {
+      refreshDetail();
+    }
+  }, 10000);
+}
+
+function stopDetailAutoRefresh() {
+  if (detailRefreshTimer) {
+    clearInterval(detailRefreshTimer);
+    detailRefreshTimer = null;
+  }
+}
+
+function workStatusLabel(status) {
+  return WORK_STATUS_LABELS[status] || status || '—';
+}
+
+function workStatusBadge(status) {
   switch (status) {
-    case 'new':
+    case 'draft':
       return 'text-bg-secondary';
-    case 'in_progress':
+    case 'pending_chief_review':
       return 'text-bg-warning text-dark';
-    case 'done':
+    case 'in_editor_review':
+      return 'text-bg-info';
+    case 'waiting_for_author':
+      return 'text-bg-danger';
+    case 'ready_for_chief_approval':
+      return 'text-bg-primary';
+    case 'published':
       return 'text-bg-success';
-    case 'archived':
-      return 'text-bg-dark';
     default:
       return 'text-bg-secondary';
   }
 }
 
-function statusAccentClass(status) {
+function workStatusAccentClass(status) {
   switch (status) {
-    case 'done':
     case 'ready_for_chief_approval':
+    case 'published':
       return 'status-accent--success';
-    case 'in_progress':
     case 'in_editor_review':
     case 'pending_chief_review':
       return 'status-accent--progress';
     case 'waiting_for_author':
       return 'status-accent--warning';
-    case 'archived':
-      return 'status-accent--muted';
-    case 'new':
+    case 'draft':
     default:
       return 'status-accent--info';
   }
 }
 
-function taskSenderName(task) {
-  return task?.sender_display_name || task?.sender_username || 'Отправитель';
-}
-
-function taskRecipientName(task) {
-  return task?.recipient_display_name || task?.recipient_username || 'Получатель';
-}
-
-function messageAlignmentClass(task, message) {
+function messageAlignmentClass(message) {
   if (!message) return 'chat-entry--neutral';
   if (message.is_system) return 'chat-entry--system';
-  if (task?.sender && message.author === task.sender) return 'chat-entry--sender';
-  if (task?.recipient && message.author === task.recipient) return 'chat-entry--recipient';
-  return 'chat-entry--neutral';
+  const userId = currentUserId.value;
+  const authorId =
+    normalizeId(message.author_id) ||
+    normalizeId(message.author_user_id) ||
+    normalizeId(message.author) ||
+    normalizeId(message.authorId);
+  if (userId && authorId && String(authorId) === String(userId)) {
+    return 'chat-entry--sender';
+  }
+  return 'chat-entry--recipient';
 }
 
 function messageAuthorName(message) {
@@ -1046,25 +986,6 @@ function changeNew(change) {
   return change.new ?? change.new_value ?? change.became ?? '';
 }
 
-function buildTaskSummary(task) {
-  if (!task) return null;
-  const payload = task.payload || {};
-  const note = payload.note || '';
-  const changes = Array.isArray(payload.changes) ? payload.changes : [];
-  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-  const hasDetails = Boolean(note) || changes.length > 0 || attachments.length > 0;
-  if (!task.closed_at || !hasDetails) {
-    return null;
-  }
-  return {
-    note,
-    changes,
-    attachments,
-    action: payload.action || null,
-    workStatus: payload.work_status || null,
-  };
-}
-
 async function fetchProfile() {
   profileLoading.value = true;
   try {
@@ -1079,93 +1000,89 @@ async function fetchProfile() {
   }
 }
 
-function buildParams() {
-  const params = {};
-  if (filters.author.trim()) params.author = filters.author.trim();
-  if (filters.workTitle.trim()) params.work_title = filters.workTitle.trim();
-  if (filters.subject.trim()) params.subject = filters.subject.trim();
-  if (filters.status) params.status = filters.status;
-  if (filters.publicationKind) params.publication_kind = filters.publicationKind;
-  if (filters.guidelineSubtype) params.guideline_subtype = filters.guidelineSubtype;
-  if (filters.trainingForm) params.training_form = filters.trainingForm;
-  if (filters.year) params.year = filters.year;
-  if (filters.createdFrom) params.created_from = filters.createdFrom;
-  if (filters.createdTo) params.created_to = filters.createdTo;
-  if (filters.assignedOnly) params.assigned = '1';
-  return params;
-}
-
-async function loadTasks() {
+async function loadWorks() {
   loading.value = true;
   error.value = '';
   try {
-    const response = await sciencePublishingAPI.listTasks(buildParams());
+    const params = {
+      publication_kind: filters.publicationKind || undefined,
+      guideline_subtype: filters.guidelineSubtype || undefined,
+      training_form: filters.trainingForm || undefined,
+      year: filters.year || undefined,
+      search: filters.workTitle?.trim() || undefined,
+      author: filters.author?.trim() || undefined,
+      status: filters.status || undefined,
+    };
+    const response = await sciencePublishingAPI.listWorks(params);
     const data = response?.data ?? response;
-    tasks.value = Array.isArray(data) ? data : data?.results ?? [];
+    const list = Array.isArray(data) ? data : data?.results ?? [];
+    works.value = list.map((item) => ({
+      ...item,
+      profile_display_name: item.profile?.display_name || item.profile_display_name,
+      profile_username: item.profile?.user || item.profile_username,
+      publication_kind_display: item.publication_kind_display || item.get_publication_kind_display,
+      guideline_subtype_display: item.guideline_subtype_display || item.get_guideline_subtype_display,
+      training_form_display: item.training_form_display || item.get_training_form_display,
+    }));
   } catch (err) {
-    error.value = err?.message || 'Не удалось загрузить задачи.';
+    error.value = err?.message || 'Не удалось загрузить черновики.';
     toast.error(error.value);
+    works.value = [];
   } finally {
     loading.value = false;
   }
 }
 
 function applyFilters() {
-  loadTasks();
+  loadWorks();
 }
 
 function resetFilters() {
   filters.author = '';
   filters.workTitle = '';
-  filters.subject = '';
   filters.status = '';
   filters.publicationKind = '';
   filters.guidelineSubtype = '';
   filters.trainingForm = '';
   filters.year = '';
-  filters.createdFrom = '';
-  filters.createdTo = '';
-  filters.assignedOnly = false;
-  loadTasks();
+  loadWorks();
 }
 
 function goToDrafts(work) {
-  const workId = work?.workId;
+  const workId = work?.id || work?.workId;
   const query = workId ? { work: workId } : undefined;
   router.push({ name: 'SciencePublishingDrafts', query });
 }
 
 function closeTask() {
   detailState.open = false;
-  detailState.task = null;
   detailState.work = null;
-  detailState.tasks = [];
   detailState.error = '';
   detailState.note = '';
   detailState.message = '';
   resetDetailTabs();
   closeAssignModal();
   closeAuthorTaskModal();
+  stopDetailAutoRefresh();
 }
 
-async function openTask(task) {
-  if (!task) return;
+async function openWork(work) {
+  if (!work) return;
   detailState.open = true;
   detailState.error = '';
-  detailState.task = null;
-  detailState.work = null;
-  detailState.tasks = [];
+  detailState.work = work;
+  detailState.chatMessages = [];
   detailState.note = '';
   detailState.message = '';
   resetDetailTabs();
-  await loadWorkTasks(task.work || task.work_id, { selectTaskId: task.id });
+  await loadWorkChat(work.id);
+  startDetailAutoRefresh();
 }
 
 async function refreshDetail() {
-  const workId = detailState.work?.id || detailState.task?.work;
+  const workId = detailState.work?.id;
   if (!workId) return;
-  const currentTaskId = detailState.task?.id ?? null;
-  await loadWorkTasks(workId, { selectTaskId: currentTaskId });
+  await loadWorkChat(workId, { background: true });
 }
 
 async function loadDetailWork(workId) {
@@ -1183,55 +1100,36 @@ async function loadDetailWork(workId) {
   }
 }
 
-async function loadWorkTasks(workId, options = {}) {
+async function loadWorkChat(workId, options = {}) {
+  const { background = false } = options;
   if (!workId) return;
-  detailState.loading = true;
+  if (!background) {
+    detailState.loading = true;
+  }
   detailState.error = '';
-  const { selectTaskId = null } = options;
   try {
     await loadDetailWork(workId);
-    const params = {
-      ordering: '-created_at',
-      page_size: 100,
-    };
-    if (workId) {
-      params.work = workId;
-    }
-    if (selectTaskId) {
-      params.selected_task = selectTaskId;
-    }
-    const response = await sciencePublishingAPI.listTasks(params);
+    const response = await sciencePublishingAPI.listWorkChatMessages(workId);
     const data = response?.data ?? response;
-    const taskList = Array.isArray(data) ? data : data?.results ?? [];
-    const detailedTasks = await Promise.all(
-      taskList.map(async (item) => {
-        try {
-          const detailResp = await sciencePublishingAPI.getTask(item.id);
-          return detailResp?.data ?? detailResp;
-        } catch (err) {
-          return item;
-        }
-      })
+    const list = Array.isArray(data) ? data : data?.results ?? [];
+    detailState.chatMessages = list.sort(
+      (a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0)
     );
-    detailState.tasks = detailedTasks;
-    const nextActive =
-      (selectTaskId && detailedTasks.find((item) => item.id === selectTaskId)) ||
-      detailedTasks.find((item) => !item.closed_at) ||
-      detailedTasks[0] ||
-      null;
-    detailState.task = nextActive;
-    detailState.note = '';
-    detailState.message = '';
+    if (!background) {
+      detailState.note = '';
+      detailState.message = '';
+    }
     await nextTick();
     scrollChatToEnd();
   } catch (err) {
-    detailState.tasks = [];
-    detailState.task = null;
+    detailState.chatMessages = [];
     detailState.note = '';
     detailState.message = '';
-    detailState.error = err?.message || 'Не удалось загрузить задачи по работе.';
+    detailState.error = err?.message || 'Не удалось загрузить переписку по работе.';
   } finally {
-    detailState.loading = false;
+    if (!background) {
+      detailState.loading = false;
+    }
   }
 }
 
@@ -1239,13 +1137,12 @@ async function performTaskAction(handler, successMessage) {
   detailState.actionLoading = true;
   try {
     await handler();
-    await Promise.all([refreshDetail(), loadTasks()]);
+    await Promise.all([refreshDetail(), loadWorks()]);
     if (successMessage) {
       toast.success(successMessage);
     }
   } catch (err) {
-    const message = err?.message || 'Не удалось выполнить действие.';
-    toast.error(message);
+    toast.error(extractErrorMessage(err, 'Не удалось выполнить действие.'));
   } finally {
     detailState.actionLoading = false;
   }
@@ -1286,9 +1183,16 @@ function ensureAuthorTaskModal() {
 async function loadEditorOptions() {
   editorOptionsLoading.value = true;
   try {
-    const response = await sciencePublishingAPI.listProfiles({ 'roles__code': 'editor', page_size: 1000 });
+    const response = await sciencePublishingAPI.listProfiles({
+      'roles__code': 'editor',
+      page_size: 1000,
+    });
     const data = response?.data ?? response;
-    editorOptions.value = Array.isArray(data) ? data : data?.results ?? [];
+    const list = Array.isArray(data) ? data : data?.results ?? [];
+    editorOptions.value = list.filter((profile) => {
+      const roles = profile?.roles || profile?.role_assignments || [];
+      return roles.some((r) => (r.code || r.role?.code) === 'editor');
+    });
   } catch (err) {
     toast.error(err?.message || 'Не удалось получить список редакторов.');
   } finally {
@@ -1333,7 +1237,7 @@ async function submitAssignEditor() {
     await sciencePublishingAPI.assignWorkEditor(detailState.work.id, payload);
     toast.success('Редактор назначен.');
     closeAssignModal();
-    await Promise.all([refreshDetail(), loadTasks()]);
+    await Promise.all([refreshDetail(), loadWorks()]);
   } catch (err) {
     const fieldError = err?.response?.data?.editor_profile;
     const detailError = err?.response?.data?.detail || err?.response?.data?.message;
@@ -1384,8 +1288,8 @@ async function openAuthorTaskModal() {
     authorTaskRecipientId.value = recipient.userId;
     authorTaskRecipientName.value =
       recipient.displayName ||
-      detailState.task?.work_author_display_name ||
-      detailState.task?.work_author_username ||
+      detailState.work?.author_display_name ||
+      detailState.work?.author_username ||
       '—';
     authorTaskForm.subject = authorTaskDefaultSubject(detailState.work);
     authorTaskForm.message = '';
@@ -1426,7 +1330,7 @@ async function submitAuthorTask() {
     });
     toast.success('Задача отправлена автору.');
     closeAuthorTaskModal();
-    await Promise.all([refreshDetail(), loadTasks()]);
+    await Promise.all([refreshDetail(), loadWorks()]);
   } catch (err) {
     toast.error(err?.message || 'Не удалось отправить задачу автору.');
   } finally {
@@ -1435,7 +1339,10 @@ async function submitAuthorTask() {
 }
 
 async function approvePublication() {
-  if (!detailState.work) return;
+  if (!detailState.work) {
+    toast.error('Данные по работе ещё не загружены.');
+    return;
+  }
   await performTaskAction(
     () =>
       sciencePublishingAPI.approveWorkAsChief(detailState.work.id, {
@@ -1446,59 +1353,81 @@ async function approvePublication() {
   detailState.note = '';
 }
 
-function sendToChief() {
-  if (!detailState.task) return;
-  performTaskAction(
-    () =>
-      sciencePublishingAPI.approveWorkAsEditor(detailState.task.work, {
-        message: detailState.note.trim() || undefined,
-      }),
-    'Задача направлена главному редактору.'
-  ).then(() => {
-    detailState.note = '';
-  });
-}
-
-function sendBackToAuthor() {
-  if (!detailState.task) return;
-  if (!detailState.note.trim()) {
-    toast.error('Опишите, что необходимо исправить.');
+async function forcePublish() {
+  if (!detailState.work) {
+    toast.error('Данные по работе ещё не загружены.');
     return;
   }
-  performTaskAction(
-    () =>
-      sciencePublishingAPI.requestWorkChanges(detailState.task.work, {
-        message: detailState.note.trim(),
-      }),
-    'Запрос правок отправлен автору.'
-  ).then(() => {
+  detailState.actionLoading = true;
+  try {
+    await sciencePublishingAPI.forcePublish(detailState.work.id, {
+      message: detailState.note.trim() || undefined,
+    });
+    toast.success('Публикация завершена.');
     detailState.note = '';
-  });
+    await Promise.all([refreshDetail(), loadWorks()]);
+  } catch (err) {
+    toast.error(extractErrorMessage(err, 'Не удалось опубликовать работу.'));
+  } finally {
+    detailState.actionLoading = false;
+  }
+}
+
+function publishWork() {
+  if (!detailState.work) {
+    toast.error('Данные по работе ещё не загружены.');
+    return;
+  }
+  const handler = canApprovePublication.value ? approvePublication : forcePublish;
+  handler();
+}
+
+async function sendToChiefWork() {
+  if (!detailState.work) return;
+  detailState.actionLoading = true;
+  try {
+    await sciencePublishingAPI.approveWorkAsEditor(detailState.work.id, {
+      message: detailState.note.trim() || undefined,
+    });
+    detailState.note = '';
+    toast.success('Отправлено главному редактору.');
+    await Promise.all([refreshDetail(), loadWorks()]);
+  } catch (err) {
+    toast.error(extractErrorMessage(err, 'Не удалось отправить главному редактору.'));
+  } finally {
+    detailState.actionLoading = false;
+  }
 }
 
 async function sendMessage() {
-  if (!detailState.task || !detailState.message.trim()) return;
+  if (!detailState.work || !detailState.message.trim()) return;
   detailState.messageLoading = true;
   try {
-    await sciencePublishingAPI.postTaskMessage(detailState.task.id, { content: detailState.message.trim() });
+    await sciencePublishingAPI.postWorkChatMessage(detailState.work.id, { content: detailState.message.trim() });
     detailState.message = '';
     await refreshDetail();
     await nextTick();
     scrollChatToEnd();
     toast.success('Сообщение отправлено.');
   } catch (err) {
-    const message = err?.message || 'Не удалось отправить сообщение.';
-    toast.error(message);
+    toast.error(extractErrorMessage(err, 'Не удалось отправить сообщение.'));
   } finally {
     detailState.messageLoading = false;
   }
 }
 
 onMounted(async () => {
+  await ensureAccess();
+  accessDenied.value = !accessAllowed.value;
+  if (accessDenied.value) return;
   await fetchProfile();
   if (isAllowed.value) {
-    await loadTasks();
+    await loadWorks();
   }
+});
+
+onUnmounted(() => {
+  stopDetailAutoRefresh();
 });
 </script>
 
@@ -1574,6 +1503,11 @@ onMounted(async () => {
   padding-right: 0.35rem;
 }
 
+.task-detail__empty {
+  border-radius: 1.25rem;
+  box-shadow: 0 18px 40px -32px rgba(15, 23, 42, 0.35);
+}
+
 .task-detail .message-item {
   background: var(--bs-body-bg);
 }
@@ -1647,6 +1581,49 @@ onMounted(async () => {
   flex-direction: column;
   gap: 2rem;
   padding-bottom: 0.5rem;
+}
+
+.task-chat__filter {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.35);
+}
+
+.task-chat__selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--bs-border-color-translucent);
+  background: rgba(248, 249, 252, 0.8);
+  color: var(--bs-body-color);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.task-chip:hover {
+  border-color: rgba(13, 110, 253, 0.35);
+  box-shadow: 0 12px 30px -24px rgba(15, 23, 42, 0.35);
+}
+
+.task-chip--active {
+  border-color: var(--bs-primary);
+  background: rgba(13, 110, 253, 0.1);
+  box-shadow: 0 14px 34px -26px rgba(13, 110, 253, 0.4);
+}
+
+.task-chip__title {
+  font-weight: 600;
 }
 
 .task-chat__conversation {
@@ -1821,6 +1798,8 @@ onMounted(async () => {
 }
 
 .chat-entry--sender {
+  align-self: flex-end;
+  margin-left: auto;
   border-color: rgba(13, 110, 253, 0.25);
   background: rgba(13, 110, 253, 0.09);
   color: rgba(15, 23, 42, 0.85);
@@ -1828,7 +1807,8 @@ onMounted(async () => {
 
 .chat-entry--recipient,
 .chat-entry--summary {
-  align-self: flex-end;
+  align-self: flex-start;
+  margin-right: auto;
   border-color: rgba(25, 135, 84, 0.25);
   background: rgba(25, 135, 84, 0.09);
   color: rgba(15, 23, 42, 0.85);

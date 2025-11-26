@@ -14,14 +14,14 @@
 
     <div class="card shadow-sm">
       <div class="card-body">
-        <form class="row g-4" @submit.prevent="submitWork">
+        <form class="row g-4 submit-form stacked" @submit.prevent="submitWork">
           <div class="col-12 col-md-6 col-xl-3">
             <label class="form-label" for="rector_name">Ректор</label>
             <input
               id="rector_name"
               v-model="form.rector_name"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('rector_name') }]"
               placeholder="Например: Федюнин О. Н."
             />
           </div>
@@ -33,7 +33,7 @@
               v-model.number="form.pages_count"
               type="number"
               min="1"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('pages_count') }]"
               placeholder="Укажите число"
             />
           </div>
@@ -46,7 +46,7 @@
               type="number"
               min="1900"
               max="2100"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('year') }]"
               required
             />
           </div>
@@ -57,7 +57,7 @@
               id="udc"
               v-model="form.udc"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('udc') }]"
               placeholder="Например: 001.891:006.354"
             />
           </div>
@@ -68,7 +68,7 @@
               id="discipline_name"
               v-model="form.discipline_name"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('discipline_name') }]"
               required
               placeholder="Например: Веб-программирование"
             />
@@ -76,7 +76,13 @@
 
           <div class="col-12 col-xl-6">
             <label class="form-label" for="bbk">ББК</label>
-            <input id="bbk" v-model="form.bbk" type="text" class="form-control" placeholder="Например: 39.71" />
+            <input
+              id="bbk"
+              v-model="form.bbk"
+              type="text"
+              :class="['form-control', { 'is-invalid': isFieldMissing('bbk') }]"
+              placeholder="Например: 39.71"
+            />
           </div>
 
           <div class="col-12 col-xl-6">
@@ -85,7 +91,7 @@
               id="discipline_topic"
               v-model="form.discipline_topic"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('discipline_topic') }]"
               placeholder="Добавьте уточнение при необходимости"
             />
           </div>
@@ -96,14 +102,20 @@
               id="developers"
               v-model="form.developers"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('developers') }]"
               placeholder="Укажите исполнителей через запятую"
             />
           </div>
 
           <div class="col-12 col-xl-4">
             <label class="form-label" for="publication_kind">Вид публикации *</label>
-            <select id="publication_kind" v-model="form.publication_kind" class="form-select" required>
+            <select
+              id="publication_kind"
+              v-model="form.publication_kind"
+              class="form-select"
+              :class="{ 'is-invalid': isFieldMissing('publication_kind') }"
+              required
+            >
               <option disabled value="">Выберите вид</option>
               <option v-for="item in publicationKinds" :key="item.value" :value="item.value">
                 {{ item.label }}
@@ -113,7 +125,13 @@
 
           <div v-if="showGuidelineSubtype" class="col-12 col-xl-4">
             <label class="form-label" for="guideline_subtype">Тип методических указаний *</label>
-            <select id="guideline_subtype" v-model="form.guideline_subtype" class="form-select" required>
+            <select
+              id="guideline_subtype"
+              v-model="form.guideline_subtype"
+              class="form-select"
+              :class="{ 'is-invalid': isFieldMissing('guideline_subtype') }"
+              required
+            >
               <option disabled value="">Выберите тип</option>
               <option v-for="item in guidelineSubtypes" :key="item.value" :value="item.value">
                 {{ item.label }}
@@ -123,7 +141,13 @@
 
           <div class="col-12 col-xl-4">
             <label class="form-label" for="training_form">Форма обучения *</label>
-            <select id="training_form" v-model="form.training_form" class="form-select" required>
+            <select
+              id="training_form"
+              v-model="form.training_form"
+              class="form-select"
+              :class="{ 'is-invalid': isFieldMissing('training_form') }"
+              required
+            >
               <option disabled value="">Выберите форму</option>
               <option v-for="item in trainingForms" :key="item.value" :value="item.value">
                 {{ item.label }}
@@ -132,12 +156,12 @@
           </div>
 
           <div class="col-12 col-xl-6">
-            <label class="form-label" for="scientific_editor">Научный редактор (при наличии)</label>
+            <label class="form-label" for="scientific_editor">Научный редактор *</label>
             <input
               id="scientific_editor"
               v-model="form.scientific_editor"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('scientific_editor') }]"
               placeholder="Например: Ковальский В. А."
             />
           </div>
@@ -148,7 +172,7 @@
               id="computer_layout"
               v-model="form.computer_layout"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('computer_layout') }]"
               placeholder="Например: Ясников М. А."
             />
           </div>
@@ -159,7 +183,7 @@
               id="author_full_name"
               v-model="form.author_full_name"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('author_full_name') }]"
               placeholder="Например: Сирота Давид Ильич"
             />
           </div>
@@ -170,7 +194,7 @@
               id="co_authors"
               v-model="form.co_authors"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('co_authors') }]"
               placeholder="Укажите соавторов при наличии"
             />
           </div>
@@ -181,7 +205,7 @@
               id="faculty"
               v-model="form.faculty"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('faculty') }]"
               placeholder="Например: ФИТ"
             />
           </div>
@@ -192,7 +216,7 @@
               id="department"
               v-model="form.department"
               type="text"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('department') }]"
               placeholder="Например: Компьютерные технологии и системы (КТС)"
             />
           </div>
@@ -217,7 +241,7 @@
               id="document_file"
               ref="fileInput"
               type="file"
-              class="form-control"
+              :class="['form-control', { 'is-invalid': isFieldMissing('document') }]"
               accept=".pdf,.doc,.docx,.zip"
               required
               @change="onFileChange"
@@ -294,6 +318,7 @@ const form = reactive({
 const documentFile = ref(null);
 const fileInput = ref(null);
 const isSubmitting = ref(false);
+const missingFields = ref(new Set());
 
 const showGuidelineSubtype = computed(() => form.publication_kind === 'method_guidelines');
 const shortDescriptionRemaining = computed(
@@ -323,6 +348,34 @@ const onFileChange = (event) => {
   documentFile.value = files && files[0] ? files[0] : null;
 };
 
+const isFieldMissing = (name) => missingFields.value.has(name);
+
+function validateForm() {
+  missingFields.value = new Set();
+  const requiredKeys = Object.keys(form).filter((key) => key !== 'short_description');
+  requiredKeys.forEach((key) => {
+    if (key === 'guideline_subtype' && !showGuidelineSubtype.value) {
+      return;
+    }
+    const value = form[key];
+    const isEmptyString = typeof value === 'string' && value.trim() === '';
+    const isNullish = value === null || value === undefined;
+    const isInvalidNumber =
+      typeof value === 'number' && (Number.isNaN(value) || value <= 0 || !Number.isFinite(value));
+    if (isNullish || isEmptyString || isInvalidNumber) {
+      missingFields.value.add(key);
+    }
+  });
+  if (!documentFile.value) {
+    missingFields.value.add('document');
+  }
+  if (missingFields.value.size > 0) {
+    toast.error('Заполните все поля (кроме краткой информации) и прикрепите файл публикации.');
+    return false;
+  }
+  return true;
+}
+
 const resetForm = () => {
   Object.assign(form, {
     rector_name: '',
@@ -345,6 +398,7 @@ const resetForm = () => {
     short_description: '',
   });
   documentFile.value = null;
+  missingFields.value = new Set();
   if (fileInput.value) {
     fileInput.value.value = '';
   }
@@ -355,18 +409,7 @@ const goBack = () => {
 };
 
 const submitWork = async () => {
-  if (!form.discipline_name || !form.publication_kind || !form.training_form || !form.year) {
-    toast.error('Пожалуйста, заполните обязательные поля.');
-    return;
-  }
-
-  if (showGuidelineSubtype.value && !form.guideline_subtype) {
-    toast.error('Выберите тип методических указаний.');
-    return;
-  }
-
-  if (!documentFile.value) {
-    toast.error('Прикрепите файл публикации.');
+  if (!validateForm()) {
     return;
   }
 
@@ -436,6 +479,13 @@ const submitWork = async () => {
 
   .btn {
     border-radius: 12px;
+  }
+
+  .submit-form.stacked {
+    > div {
+      flex: 0 0 100%;
+      max-width: 100%;
+    }
   }
 
   @media (max-width: 767px) {

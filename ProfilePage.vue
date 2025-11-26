@@ -11,7 +11,7 @@
         <button
           type="button"
           class="btn btn-outline-primary d-flex align-items-center gap-2"
-          :disabled="isLoadingProfile || isLoadingWorks || isLoadingTasks"
+          :disabled="isLoadingProfile || isLoadingWorks"
           @click="refreshAll"
         >
           <RefreshCcw size="16" />
@@ -34,22 +34,12 @@
           <Shield size="16" />
           <span>Администрирование</span>
         </button>
-        <button
-          v-if="devRolesEnabled"
-          type="button"
-          class="btn btn-outline-secondary d-flex align-items-center gap-2"
-          @click="goToDevRoles"
-        >
-          <Users size="16" />
-          <span>Управление ролями (dev)</span>
-        </button>
       </div>
     </div>
 
-    <div v-if="profileError || worksError || tasksError" class="alert alert-danger mb-4">
+    <div v-if="profileError || worksError" class="alert alert-danger mb-4">
       <p v-if="profileError" class="mb-1">{{ profileError }}</p>
       <p v-if="worksError" class="mb-1">{{ worksError }}</p>
-      <p v-if="tasksError" class="mb-0">{{ tasksError }}</p>
     </div>
 
     <div class="row g-4">
@@ -158,33 +148,58 @@
             <div v-else-if="profile" class="card-body">
               <div class="profile-block">
                 <div class="profile-block__label">Имя</div>
-                <div class="profile-block__value">{{ profile.display_name || profile.user }}</div>
+                <div class="profile-block__value">{{ displayValue(profile.display_name || profile.user) }}</div>
               </div>
-              <div class="profile-block" v-if="profile.organization">
-                <div class="profile-block__label">Организация</div>
-                <div class="profile-block__value">{{ profile.organization }}</div>
-              </div>
-              <div class="profile-block" v-if="profile.department">
-                <div class="profile-block__label">Подразделение</div>
-                <div class="profile-block__value">{{ profile.department }}</div>
-              </div>
-              <div class="profile-block" v-if="profile.position">
-                <div class="profile-block__label">Должность</div>
-                <div class="profile-block__value">{{ profile.position }}</div>
-              </div>
-              <div class="profile-block" v-if="profile.phone">
+              <div class="profile-block">
                 <div class="profile-block__label">Телефон</div>
-                <div class="profile-block__value">{{ profile.phone }}</div>
+                <div class="profile-block__value">{{ displayValue(profile.phone) }}</div>
               </div>
-              <div class="profile-block" v-if="profile.website">
+              <div class="profile-block">
+                <div class="profile-block__label">Организация</div>
+                <div class="profile-block__value">{{ displayValue(profile.organization) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">Подразделение</div>
+                <div class="profile-block__value">{{ displayValue(profile.department) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">Должность</div>
+                <div class="profile-block__value">{{ displayValue(profile.position) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">Учёная степень</div>
+                <div class="profile-block__value">{{ displayValue(profile.academic_degree) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">Учёное звание</div>
+                <div class="profile-block__value">{{ displayValue(profile.academic_title) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">ORCID</div>
+                <div class="profile-block__value">{{ displayValue(profile.orcid) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">Scopus Author ID</div>
+                <div class="profile-block__value">{{ displayValue(profile.scopus_id) }}</div>
+              </div>
+              <div class="profile-block">
+                <div class="profile-block__label">eLIBRARY ID</div>
+                <div class="profile-block__value">{{ displayValue(profile.elibrary_id) }}</div>
+              </div>
+              <div class="profile-block">
                 <div class="profile-block__label">Сайт</div>
                 <div class="profile-block__value">
-                  <a :href="profile.website" target="_blank" rel="noopener">{{ profile.website }}</a>
+                  <template v-if="profile.website">
+                    <a :href="profile.website" target="_blank" rel="noopener">{{ profile.website }}</a>
+                  </template>
+                  <template v-else>
+                    {{ displayValue(profile.website) }}
+                  </template>
                 </div>
               </div>
-              <div class="profile-block" v-if="profile.biography">
+              <div class="profile-block">
                 <div class="profile-block__label">О себе</div>
-                <div class="profile-block__value">{{ profile.biography }}</div>
+                <div class="profile-block__value">{{ displayValue(profile.biography) }}</div>
               </div>
             </div>
 
@@ -278,98 +293,6 @@
           </div>
         </div>
 
-        <div class="card shadow-sm">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">Редакционные задачи</h5>
-            <span class="badge rounded-pill text-bg-secondary-subtle text-secondary">{{ tasks.length }}</span>
-          </div>
-          <div v-if="isLoadingTasks" class="card-body text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-              <span class="visually-hidden">Загрузка...</span>
-            </div>
-          </div>
-          <div v-else class="card-body">
-            <div v-if="tasks.length === 0" class="text-muted text-center py-4">
-              <MessageSquare size="32" class="mb-3" />
-              Пока нет активных задач.
-            </div>
-            <div v-else class="row">
-              <div class="col-lg-5 border-end mb-3 mb-lg-0">
-                <div
-                  v-for="task in tasks"
-                  :key="task.id"
-                  class="task-item"
-                  :class="{ active: task.id === activeTask?.id }"
-                  @click="openTask(task)"
-                >
-                  <div class="d-flex justify-content-between align-items-start">
-                    <div class="fw-semibold">{{ task.subject || 'Без темы' }}</div>
-                    <span class="badge" :class="taskBadgeClass(task.status)">
-                      {{ taskStatusLabel(task.status) }}
-                    </span>
-                  </div>
-                  <div class="text-muted small">
-                    {{ formatDate(task.created_at) }}
-                  </div>
-                  <div class="text-muted small mt-1">
-                    {{ task.work_title || '—' }}
-                  </div>
-                </div>
-              </div>
-              <div class="col-lg-7">
-                <div v-if="!activeTask" class="text-muted text-center py-4">
-                  Выберите задачу, чтобы просмотреть переписку.
-                </div>
-                <div v-else class="conversation">
-                  <div class="conversation-header">
-                    <h6 class="mb-1">{{ activeTask.subject || 'Без темы' }}</h6>
-                    <div class="text-muted small">
-                      Работа: {{ activeTask.work_title || '—' }}
-                    </div>
-                  </div>
-                  <div class="conversation-messages" ref="messagesContainer">
-                    <div
-                      v-for="message in taskMessages"
-                      :key="message.id"
-                      class="conversation-message"
-                    >
-                      <div class="conversation-message__meta">
-                        <strong>{{ message.author_display_name || message.author_username }}</strong>
-                        <span>{{ formatDateTime(message.created_at) }}</span>
-                      </div>
-                      <div class="conversation-message__content">
-                        {{ message.content }}
-                      </div>
-                    </div>
-                    <div v-if="taskMessages.length === 0" class="text-muted small py-4 text-center">
-                      Сообщений пока нет.
-                    </div>
-                  </div>
-                  <form class="conversation-form" @submit.prevent="sendMessage">
-                    <textarea
-                      v-model="messageDraft"
-                      class="form-control"
-                      rows="3"
-                      placeholder="Напишите сообщение..."
-                      :disabled="isSendingMessage"
-                    />
-                    <div class="text-end mt-2">
-                      <button
-                        type="submit"
-                        class="btn btn-primary d-inline-flex align-items-center gap-2"
-                        :disabled="isSendingMessage || !messageDraft.trim()"
-                      >
-                        <span v-if="isSendingMessage" class="spinner-border spinner-border-sm" />
-                        <Send v-else size="16" />
-                        <span v-if="!isSendingMessage">Отправить</span>
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -383,12 +306,9 @@ import {
   RefreshCcw,
   FilePlus,
   Shield,
-  Users,
   Contact,
   FileText,
   Download,
-  MessageSquare,
-  Send,
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-vue-next';
@@ -403,7 +323,6 @@ const toast = useToast();
 
 const userStore = useUserStore();
 const { isInitialized } = storeToRefs(userStore);
-const devRolesEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_ROLES === 'true';
 
 const profile = ref(null);
 const profileError = ref('');
@@ -412,14 +331,6 @@ const isLoadingProfile = ref(false);
 const works = ref([]);
 const worksError = ref('');
 const isLoadingWorks = ref(false);
-
-const tasks = ref([]);
-const taskMessages = ref([]);
-const activeTask = ref(null);
-const tasksError = ref('');
-const isLoadingTasks = ref(false);
-const isSendingMessage = ref(false);
-const messageDraft = ref('');
 
 const isEditing = ref(false);
 const isSaving = ref(false);
@@ -457,25 +368,8 @@ const STATUS_BADGES = {
   published: 'text-bg-success',
 };
 
-const TASK_STATUS_LABELS = {
-  new: 'Новая',
-  in_progress: 'В работе',
-  done: 'Завершена',
-  archived: 'Архив',
-};
-
-const TASK_BADGES = {
-  new: 'text-bg-danger',
-  in_progress: 'text-bg-warning',
-  done: 'text-bg-success',
-  archived: 'text-bg-secondary',
-};
-
 const isAdministrator = computed(() =>
   profile.value?.roles?.some((role) => role.code === 'administrator')
-);
-const isChiefEditor = computed(() =>
-  profile.value?.roles?.some((role) => role.code === 'chief_editor')
 );
 
 const ensureUserInitialized = async () => {
@@ -535,35 +429,8 @@ const loadWorks = async () => {
   }
 };
 
-const loadTasks = async () => {
-  isLoadingTasks.value = true;
-  tasksError.value = '';
-  try {
-    const response = await sciencePublishingAPI.listTasks();
-    const data = response?.data ?? response;
-    tasks.value = Array.isArray(data) ? data : data?.results ?? [];
-    if (tasks.value.length === 0) {
-      activeTask.value = null;
-      taskMessages.value = [];
-    } else if (activeTask.value) {
-      const updated = tasks.value.find((item) => item.id === activeTask.value.id);
-      if (updated) {
-        await openTask(updated);
-      } else {
-        activeTask.value = null;
-        taskMessages.value = [];
-      }
-    }
-  } catch (error) {
-    tasksError.value = error?.message || 'Не удалось загрузить задачи.';
-    tasks.value = [];
-  } finally {
-    isLoadingTasks.value = false;
-  }
-};
-
 const refreshAll = async () => {
-  await Promise.all([loadProfile(), loadWorks(), loadTasks()]);
+  await Promise.all([loadProfile(), loadWorks()]);
 };
 
 const startEditing = () => {
@@ -601,10 +468,6 @@ const goToSubmit = () => {
 
 const goToAdminPanel = () => {
   router.push({ name: 'SciencePublishingAdmin' });
-};
-
-const goToDevRoles = () => {
-  router.push({ name: 'SciencePublishingDevRoles' });
 };
 
 const statusText = (work) => work?.status_display || STATUS_LABELS[work?.status] || 'Статус не определён';
@@ -646,21 +509,6 @@ const formatDate = (value) => {
   });
 };
 
-const formatDateTime = (value) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
 const documentUrl = (work) => {
   if (!work?.document) {
     return null;
@@ -675,49 +523,12 @@ const documentUrl = (work) => {
   }
 };
 
-const openTask = async (task) => {
-  activeTask.value = task;
-  messageDraft.value = '';
-  taskMessages.value = [];
-  try {
-    const response = await sciencePublishingAPI.listTaskMessages(task.id);
-    const data = response?.data ?? response;
-    taskMessages.value = Array.isArray(data) ? data : data?.results ?? [];
-    nextTickScrollMessages();
-  } catch (error) {
-    toast.error(error?.message || 'Не удалось загрузить переписку.');
-  }
-};
-
-const messagesContainer = ref(null);
-const nextTickScrollMessages = () => {
-  requestAnimationFrame(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-    }
-  });
-};
-
-const sendMessage = async () => {
-  if (!activeTask.value || !messageDraft.value.trim()) return;
-  isSendingMessage.value = true;
-  try {
-    const payload = { content: messageDraft.value.trim() };
-    await sciencePublishingAPI.postTaskMessage(activeTask.value.id, payload);
-    messageDraft.value = '';
-    await openTask(activeTask.value);
-    await loadTasks();
-  } catch (error) {
-    toast.error(error?.message || 'Не удалось отправить сообщение.');
-  } finally {
-    isSendingMessage.value = false;
-  }
-};
-
 onMounted(async () => {
   await ensureUserInitialized();
   await refreshAll();
 });
+
+const displayValue = (value, fallback = '—') => (value === undefined || value === null || value === '' ? fallback : value);
 </script>
 
 <style scoped lang="scss">
@@ -743,57 +554,5 @@ onMounted(async () => {
     }
   }
 
-  .task-item {
-    padding: 0.75rem;
-    border-radius: 0.75rem;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: border-color 0.2s ease, background 0.2s ease;
-    margin-bottom: 0.75rem;
-
-    &:hover {
-      border-color: var(--bs-primary-border-subtle);
-      background: var(--bs-primary-bg-subtle);
-    }
-
-    &.active {
-      border-color: var(--bs-primary);
-      background: var(--bs-primary-bg-subtle);
-    }
-  }
-
-  .conversation {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-
-    &-header {
-      margin-bottom: 1rem;
-    }
-
-    &-messages {
-      min-height: 180px;
-      max-height: 280px;
-      overflow-y: auto;
-      padding-right: 0.5rem;
-      margin-bottom: 1rem;
-    }
-
-    &-message {
-      background: var(--bs-body-bg);
-      border: 1px solid var(--bs-border-color);
-      border-radius: 0.75rem;
-      padding: 0.75rem;
-      margin-bottom: 0.75rem;
-
-      &__meta {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.75rem;
-        color: var(--bs-secondary-color);
-        margin-bottom: 0.5rem;
-      }
-    }
-  }
 }
 </style>
