@@ -2,7 +2,7 @@ export default {
   SciencePublishing: {
     name: 'SciencePublishing',
     path: '/science-publishing',
-    component: '@/modules/science-publishing/ParentLayout.vue',
+    component: '@/modules/science_publishing/client/ParentLayout.vue',
     redirect: 'SciencePublishingProfile',
     meta: {
       title: 'Science publishing',
@@ -12,7 +12,7 @@ export default {
   SciencePublishingProfile: {
     name: 'SciencePublishingProfile',
     path: '/science-publishing/profile',
-    component: '@/modules/science-publishing/ProfilePage.vue',
+    component: '@/modules/science_publishing/client/ProfilePage.vue',
     meta: {
       title: 'Profile',
       requiresAuth: true,
@@ -21,7 +21,7 @@ export default {
   SciencePublishingSubmit: {
     name: 'SciencePublishingSubmit',
     path: '/science-publishing/submit',
-    component: '@/modules/science-publishing/WorkSubmitPage.vue',
+    component: '@/modules/science_publishing/client/WorkSubmitPage.vue',
     meta: {
       title: 'Submit work',
       requiresAuth: true,
@@ -30,7 +30,7 @@ export default {
   SciencePublishingDevRoles: {
     name: 'SciencePublishingDevRoles',
     path: '/science-publishing/dev-roles',
-    component: '@/modules/science-publishing/DevRolePage.vue',
+    component: '@/modules/science_publishing/client/DevRolePage.vue',
     meta: {
       title: 'Roles (dev)',
       requiresAuth: true,
@@ -39,7 +39,7 @@ export default {
   SciencePublishingTasks: {
     name: 'SciencePublishingTasks',
     path: '/science-publishing/tasks',
-    component: '@/modules/science-publishing/TasksPage.vue',
+    component: '@/modules/science_publishing/client/TasksPage.vue',
     meta: {
       title: 'Tasks',
       requiresAuth: true,
@@ -48,7 +48,7 @@ export default {
   SciencePublishingAdmin: {
     name: 'SciencePublishingAdmin',
     path: '/science-publishing/admin',
-    component: '@/modules/science-publishing/AdminPanelPage.vue',
+    component: '@/modules/science_publishing/client/AdminPanelPage.vue',
     meta: {
       title: 'Admin',
       requiresAuth: true,
@@ -57,7 +57,7 @@ export default {
   SciencePublishingDrafts: {
     name: 'SciencePublishingDrafts',
     path: '/science-publishing/drafts',
-    component: '@/modules/science-publishing/DraftsPage.vue',
+    component: '@/modules/science_publishing/client/DraftsPage.vue',
     meta: {
       title: 'Drafts',
       requiresAuth: true,
@@ -66,7 +66,7 @@ export default {
   SciencePublishingPublications: {
     name: 'SciencePublishingPublications',
     path: '/science-publishing/publications',
-    component: '@/modules/science-publishing/PublicationsPage.vue',
+    component: '@/modules/science_publishing/client/PublicationsPage.vue',
     meta: {
       title: 'Publications',
       requiresAuth: true,
