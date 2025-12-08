@@ -480,7 +480,7 @@ import { useRouter } from 'vue-router';
 import { useToast } from 'vue-toastification';
 import { Modal } from 'bootstrap';
 
-import { sciencePublishingAPI } from '@/modules/science-publishing/js/science-publishing.js';
+import { sciencePublishingAPI } from '@/modules/science_publishing/client/js/science-publishing.js';
 import { apiClient } from '@/js/api/manager.js';
 
 const router = useRouter();

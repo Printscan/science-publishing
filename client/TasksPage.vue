@@ -3,13 +3,11 @@
     Нет доступа к задачам редакции.
   </div>
   <div v-else class="tasks-page container-fluid py-4">
-    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
-      <div>
-        <h2 class="page-title mb-0">Задачи редакции</h2>
-        <p class="page-subtitle mb-0 text-muted">
-          Отслеживайте назначения, запросы правок и статусы работ в одном списке.
-        </p>
-      </div>
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+        <div>
+          <h2 class="page-title mb-0">Задачи редакции</h2>
+        <p class="page-subtitle mb-0 text-muted"></p>
+        </div>
       <button class="btn btn-outline-primary d-inline-flex align-items-center gap-2" :disabled="loading" @click="loadWorks">
         <RefreshCcw size="16" />
         <span>Обновить</span>
@@ -99,8 +97,8 @@
               />
             </div>
           </div>
-          <div class="d-flex justify-content-end gap-2 mt-3">
-            <button type="button" class="btn btn-outline-secondary" :disabled="loading" @click="resetFilters">
+            <div class="d-flex justify-content-end gap-2 mt-3">
+            <button type="button" class="btn btn-outline-secondary reset-btn" :disabled="loading" @click="resetFilters">
               Сбросить
             </button>
             <button type="submit" class="btn btn-primary" :disabled="loading">
@@ -137,10 +135,10 @@
                 <div>
                   <h5 class="card-title mb-1">{{ work.discipline_name || 'Без названия' }}</h5>
                   <div class="small text-muted">
-                    Автор: {{ work.profile_display_name || work.profile_username || '—' }}
+                    <strong>Автор:</strong> {{ work.profile_display_name || work.profile_username || '—' }}
                   </div>
                   <div class="small text-muted">
-                    Тип: {{ work.publication_kind_display || '—' }}
+                    <strong>Тип:</strong> {{ work.publication_kind_display || '—' }}
                   </div>
                 </div>
                 <div class="text-end">
@@ -154,16 +152,16 @@
                 </div>
               </div>
 
-              <div class="row row-cols-1 row-cols-md-2 gy-1 gx-3 text-muted small mt-3">
-                <div>
-                  <strong>Подтип:</strong>
-                  <span>{{ work.guideline_subtype_display || '—' }}</span>
+                <div class="row row-cols-1 row-cols-md-2 gy-1 gx-3 text-muted small mt-3">
+                  <div>
+                    <strong>Подтип:</strong>
+                    <span>{{ work.guideline_subtype_display || '—' }}</span>
+                  </div>
+                  <div>
+                    <strong>Форма обучения:</strong>
+                    <span>{{ work.training_form_display || '—' }}</span>
+                  </div>
                 </div>
-                <div>
-                  <strong>Форма обучения:</strong>
-                  <span>{{ work.training_form_display || '—' }}</span>
-                </div>
-              </div>
 
               <div class="mt-3 d-flex flex-wrap gap-2">
                 <a
@@ -193,24 +191,32 @@
         @click.self="closeTask"
       >
         <div class="task-detail card shadow-lg">
-          <div class="task-detail__header d-flex align-items-start justify-content-between mb-3 flex-wrap gap-3">
-            <div class="me-3 flex-grow-1">
-              <h4 class="mb-1">
-                {{
-                  detailState.work?.discipline_name ||
-                  detailState.work?.title ||
-                  'Детали работы'
-                }}
-              </h4>
-              <div class="text-muted small">{{ taskAuthorDisplay }}</div>
-            </div>
-            <div class="d-flex flex-wrap align-items-start gap-2">
-              <a
-                v-if="detailState.work?.document"
-                :href="workDocumentUrl(detailState.work)"
+            <div class="task-detail__header d-flex align-items-start justify-content-between mb-3 flex-wrap gap-3">
+              <div class="me-3 flex-grow-1">
+                <h4 class="mb-1">
+                  {{
+                    detailState.work?.discipline_name ||
+                    detailState.work?.title ||
+                    'Детали работы'
+                  }}
+                </h4>
+                <div class="task-detail__meta d-flex align-items-center gap-2 flex-wrap">
+                  <span class="task-detail__author">{{ taskAuthorDisplay }}</span>
+                  <span
+                    class="badge task-chat__status"
+                    :class="statusBadgeClass(detailState.work?.status)"
+                  >
+                    {{ statusLabel(detailState.work?.status) }}
+                  </span>
+                </div>
+              </div>
+              <div class="d-flex flex-wrap align-items-start gap-2">
+                <a
+                  v-if="detailState.work?.document"
+                  :href="workDocumentUrl(detailState.work)"
                 target="_blank"
                 rel="noopener"
-                class="btn btn-outline-danger"
+                class="btn task-action-btn task-action-btn--ghost"
               >
                 Скачать работу
               </a>
@@ -227,56 +233,58 @@
               {{ detailState.error }}
             </div>
             <div v-else class="task-detail__layout">
-              <div class="d-flex flex-wrap gap-2 mb-3">
-                <button
-                  v-if="isChiefEditor"
-                  type="button"
-                  class="btn btn-success"
-                  :disabled="detailState.actionLoading"
-                  @click="publishWork"
-                >
-                  <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                  Опубликовать
-                </button>
-                <button
-                  v-else-if="canSendToChiefWork"
-                  type="button"
-                  class="btn btn-outline-primary"
-                  :disabled="detailState.actionLoading"
-                  @click="sendToChiefWork"
-                >
-                  <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                  Отправить главному редактору
-                </button>
-                <button
-                  v-if="canAssignEditorForWork"
-                  type="button"
-                  class="btn btn-outline-primary"
-                  @click="openAssignModal"
-                >
-                  {{ detailState.work?.current_editor_display_name ? 'Сменить редактора' : 'Назначить редактора' }}
-                </button>
-              </div>
-              <div class="task-detail__tabs">
-                <button
-                  type="button"
-                  class="task-detail__tab"
-                  :class="{ 'task-detail__tab--active': detailState.activeTab === 'chat' }"
-                  @click="setDetailTab('chat')"
-                >
-                  Переписка
-                </button>
-                <button
-                  type="button"
-                  class="task-detail__tab"
-                  :class="{ 'task-detail__tab--active': detailState.activeTab === 'attachments' }"
-                  @click="setDetailTab('attachments')"
-                >
-                  Вложения
-                  <span v-if="detailAttachments.length" class="task-detail__tab-count">
-                    {{ detailAttachments.length }}
-                  </span>
-                </button>
+                  <div class="task-detail__topbar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-0">
+                <div class="task-detail__actions d-flex flex-wrap gap-2">
+                  <button
+                    v-if="isChiefEditor"
+                    type="button"
+                    class="btn task-action-btn task-action-btn--accent"
+                    :disabled="detailState.actionLoading"
+                    @click="publishWork"
+                  >
+                    <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Опубликовать
+                  </button>
+                  <button
+                    v-else-if="canSendToChiefWork"
+                    type="button"
+                    class="btn task-action-btn task-action-btn--accent"
+                    :disabled="detailState.actionLoading"
+                    @click="sendToChiefWork"
+                  >
+                    <span v-if="detailState.actionLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Отправить главному редактору
+                  </button>
+                  <button
+                    v-if="canAssignEditorForWork"
+                    type="button"
+                    class="btn task-action-btn task-action-btn--ghost"
+                    @click="openAssignModal"
+                  >
+                    {{ detailState.work?.current_editor_display_name ? 'Сменить редактора' : 'Назначить редактора' }}
+                  </button>
+                </div>
+                <div class="task-detail__tabs task-detail__tabs--inline nav nav-pills">
+                  <button
+                    type="button"
+                    class="task-detail__tab nav-link"
+                    :class="{ 'task-detail__tab--active active': detailState.activeTab === 'chat' }"
+                    @click="setDetailTab('chat')"
+                  >
+                    Переписка
+                  </button>
+                  <button
+                    type="button"
+                    class="task-detail__tab nav-link"
+                    :class="{ 'task-detail__tab--active active': detailState.activeTab === 'attachments' }"
+                    @click="setDetailTab('attachments')"
+                  >
+                    Вложения
+                    <span v-if="detailAttachments.length" class="task-detail__tab-count">
+                      {{ detailAttachments.length }}
+                    </span>
+                  </button>
+                </div>
               </div>
 
               <div ref="detailScrollRef" class="task-detail__content">
@@ -284,61 +292,138 @@
                   <div v-if="!detailState.chatMessages.length" class="alert alert-light border text-center mb-0">
                     Переписка пока пуста.
                   </div>
-                  <div v-else class="task-chat__conversation">
-                    <div class="task-chat__timeline">
-                      <span class="task-chat__dot" :class="workStatusAccentClass(detailState.work?.status)"></span>
-                    </div>
+                  <div v-else class="task-chat__frame">
                     <div class="task-chat__content">
-                      <header class="task-chat__header">
-                        <div>
-                          <div class="task-chat__subject">{{ detailState.work?.discipline_name || 'Без темы' }}</div>
-                          <div class="task-chat__meta text-muted small">
-                            <span>{{ currentEditorDisplay }}</span>
-                            <span class="task-chat__divider" aria-hidden="true">•</span>
-                            <span>{{ formatDateTime(detailState.work?.updated_at || detailState.work?.created_at) }}</span>
-                          </div>
+                      <div class="chat-thread" ref="chatThreadRef" @scroll="updateFloatingDate">
+                        <div class="chat-floating-date">
+                          <transition name="chat-date-fade" mode="out-in">
+                            <span
+                              v-if="floatingDateLabel"
+                              :key="floatingDayKey"
+                              class="chat-date__pill chat-date__pill--floating"
+                            >
+                              {{ floatingDateLabel }}
+                            </span>
+                          </transition>
                         </div>
-                        <span class="badge task-chat__status" :class="statusBadgeClass(detailState.work?.status)">
-                          {{ statusLabel(detailState.work?.status) }}
-                        </span>
-                      </header>
-
-                      <div class="chat-thread">
-                        <div
-                          v-for="message in detailState.chatMessages"
-                          :key="message.id || message.created_at"
-                          :class="['chat-entry', messageAlignmentClass(message)]"
+                        <template v-for="item in chatItems" :key="item.key">
+                          <div
+                            v-if="item.type === 'date' && item.dayKey !== firstChatDayKey"
+                            class="chat-date"
+                            :data-chat-day="item.dayKey"
+                          >
+                            <span class="chat-date__pill">{{ item.date }}</span>
+                          </div>
+                        <article
+                          v-else-if="item.type === 'message'"
+                          :class="['chat-entry', messageAlignmentClass(item.message)]"
+                          :data-chat-day="item.dayKey"
+                          :data-message-id="item.message.id || item.key"
                         >
-                          <div class="chat-entry__heading">
-                            <div class="chat-entry__name">{{ messageAuthorName(message) }}</div>
-                            <span class="chat-entry__time text-muted small">{{ formatDateTime(message.created_at) }}</span>
-                          </div>
-                          <div class="chat-entry__body">
-                            <p v-if="message.content" class="mb-2">{{ message.content }}</p>
-                            <div v-if="messageHasChanges(message)" class="chat-entry__changes">
-                              <div class="chat-entry__subtitle text-muted small">Изменения</div>
-                              <ul class="chat-change-list">
-                                <li v-for="change in message.changes" :key="change.field || change.name || change.label">
-                                  <strong>{{ changeLabel(change) }}:</strong>
-                                  <span class="text-muted ms-1">было {{ formatChangeValue(changeOld(change)) }}</span>
-                                  <span class="ms-1">стало {{ formatChangeValue(changeNew(change)) }}</span>
-                                </li>
-                              </ul>
+                            <div class="chat-entry__heading" v-if="showMessageName(item.message)">
+                              <button
+                                type="button"
+                                class="chat-entry__name"
+                                @click.stop="openProfilePreview(item.message)"
+                                :aria-label="`Открыть профиль ${messageAuthorName(item.message)}`"
+                              >
+                                {{ messageAuthorName(item.message) }}
+                              </button>
                             </div>
-                            <div v-if="messageHasAttachments(message)" class="chat-entry__attachments">
-                              <div class="chat-entry__subtitle text-muted small">Вложения</div>
-                              <ul class="chat-attachment-list">
-                                <li v-for="attachment in message.attachments" :key="attachment.url || attachment.absolute_url">
-                                  <a :href="attachment.absolute_url || attachment.url" target="_blank" rel="noopener">
-                                    {{ attachment.name || attachment.url || 'Файл' }}
-                                  </a>
-                                </li>
-                              </ul>
+                            <div class="chat-entry__body">
+                            <div class="chat-entry__row" v-if="item.message.content">
+                              <p class="chat-entry__text">{{ item.message.content }}</p>
+                              <span class="chat-entry__time-inline">
+                                {{ formatTime(item.message.created_at) }}
+                                <span
+                                  v-if="isOwnMessage(item.message)"
+                                  class="chat-entry__status"
+                                  :class="statusClass(item.message)"
+                                  aria-label="Статус доставки"
+                                >
+                                  <span
+                                    v-if="item.message.pending_status === 'pending'"
+                                    class="spinner-border spinner-border-sm"
+                                    role="status"
+                                    aria-hidden="true"
+                                  ></span>
+                                  <button
+                                    v-else-if="item.message.pending_status === 'failed'"
+                                    type="button"
+                                    class="btn btn-link btn-status-failed p-0"
+                                    @click.stop="handleFailedMessage(item.message)"
+                                    title="Сообщение не отправлено. Нажмите, чтобы повторить или удалить."
+                                  >
+                                    ✕
+                                  </button>
+                                  <span v-else>{{ statusSymbol(item.message) }}</span>
+                                </span>
+                              </span>
                             </div>
-                          </div>
-                        </div>
+
+                              <div v-if="messageHasChanges(item.message)" class="chat-entry__changes">
+                                <div class="chat-entry__subtitle text-muted small">Изменения</div>
+                                <ul class="chat-change-list">
+                                  <li v-for="change in item.message.changes" :key="change.field || change.name || change.label">
+                                    <strong>{{ changeLabel(change) }}:</strong>
+                                    <span class="text-muted ms-1">было {{ formatChangeValue(changeOld(change)) }}</span>
+                                    <span class="ms-1">стало {{ formatChangeValue(changeNew(change)) }}</span>
+                                  </li>
+                                </ul>
+                              </div>
+                              <div v-if="messageHasAttachments(item.message)" class="chat-entry__attachments">
+                                <div class="chat-entry__subtitle text-muted small">Вложения</div>
+                                <ul class="chat-attachment-list">
+                                  <li v-for="attachment in item.message.attachments" :key="attachment.url || attachment.absolute_url">
+                                    <a :href="attachment.absolute_url || attachment.url" target="_blank" rel="noopener">
+                                      {{ attachment.name || attachment.url || 'Файл' }}
+                                    </a>
+                                  </li>
+                                </ul>
+                              </div>
+                            <div class="chat-entry__footer" v-if="!item.message.content">
+                              <span class="chat-entry__time text-muted">
+                                {{ formatTime(item.message.created_at) }}
+                                <span
+                                  v-if="isOwnMessage(item.message)"
+                                  class="chat-entry__status"
+                                  :class="statusClass(item.message)"
+                                  aria-label="Статус доставки"
+                                >
+                                  {{ statusSymbol(item.message) }}
+                                </span>
+                              </span>
+                            </div>
+                            </div>
+                          </article>
+                        </template>
                       </div>
                     </div>
+                    <form
+                      class="task-composer"
+                      @submit.prevent="sendMessage"
+                    >
+                      <div class="d-flex flex-column gap-2">
+                        <div class="d-flex flex-column flex-md-row gap-2 align-items-stretch">
+                          <textarea
+                            id="detail-message"
+                            v-model="detailState.message"
+                            class="form-control compose-input"
+                            rows="2"
+                            placeholder="Сообщение..."
+                            :disabled="detailState.messageLoading"
+                          ></textarea>
+                          <button
+                            class="btn btn-primary compose-send"
+                            type="submit"
+                            :disabled="detailState.messageLoading || !detailState.message.trim()"
+                          >
+                            <span v-if="detailState.messageLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            Отправить
+                          </button>
+                        </div>
+                      </div>
+                    </form>
                   </div>
                 </div>
 
@@ -400,32 +485,119 @@
                 </div>
               </div>
 
-              <form
-                v-if="detailState.activeTab === 'chat'"
-                class="task-composer"
-                @submit.prevent="sendMessage"
-              >
-                <label class="form-label" for="detail-message">Добавить сообщение</label>
-                <div class="input-group">
-                  <textarea
-                    id="detail-message"
-                    v-model="detailState.message"
-                    class="form-control"
-                    rows="2"
-                    placeholder="Напишите комментарий..."
-                    :disabled="detailState.messageLoading"
-                  ></textarea>
-                  <button
-                    class="btn btn-primary"
-                    type="submit"
-                    :disabled="detailState.messageLoading || !detailState.message.trim()"
-                  >
-                    <span v-if="detailState.messageLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Отправить
-                  </button>
-                </div>
-              </form>
             </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+    <Teleport to="body">
+      <div
+        v-if="profilePreview.open"
+        class="profile-preview-overlay"
+        @click.self="closeProfilePreview"
+      >
+        <div class="profile-preview card shadow-lg">
+          <div class="profile-preview__header">
+            <div>
+              <div class="profile-preview__title">
+                {{ profilePreviewTitle }}
+              </div>
+            </div>
+            <button type="button" class="btn-close" aria-label="Закрыть" @click="closeProfilePreview"></button>
+          </div>
+
+          <div v-if="profilePreview.loading" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Загрузка профиля...</span>
+            </div>
+          </div>
+
+          <div v-else-if="profilePreview.error" class="alert alert-danger mb-0">
+            {{ profilePreview.error }}
+          </div>
+
+          <div v-else-if="profilePreview.profile" class="profile-preview__body">
+            <div class="profile-preview__section">
+              <div class="profile-preview__pair">
+                <span class="profile-preview__label">Имя</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.display_name || '—' }}</span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.phone">
+                <span class="profile-preview__label">Телефон</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.phone }}</span>
+              </div>
+            </div>
+
+            <div class="profile-preview__section" v-if="profilePreview.profile.organization || profilePreview.profile.department || profilePreview.profile.position">
+              <div class="profile-preview__pair" v-if="profilePreview.profile.organization">
+                <span class="profile-preview__label">Организация</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.organization }}</span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.department">
+                <span class="profile-preview__label">Подразделение</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.department }}</span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.position">
+                <span class="profile-preview__label">Должность</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.position }}</span>
+              </div>
+            </div>
+
+            <div class="profile-preview__section" v-if="profilePreview.profile.academic_degree || profilePreview.profile.academic_title">
+              <div class="profile-preview__pair" v-if="profilePreview.profile.academic_degree">
+                <span class="profile-preview__label">Учёная степень</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.academic_degree }}</span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.academic_title">
+                <span class="profile-preview__label">Учёное звание</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.academic_title }}</span>
+              </div>
+            </div>
+
+            <div class="profile-preview__section" v-if="profilePreview.profile.orcid || profilePreview.profile.scopus_id || profilePreview.profile.elibrary_id">
+              <div class="profile-preview__pair" v-if="profilePreview.profile.orcid">
+                <span class="profile-preview__label">ORCID</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.orcid }}</span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.scopus_id">
+                <span class="profile-preview__label">Scopus Author ID</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.scopus_id }}</span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.elibrary_id">
+                <span class="profile-preview__label">Elibrary ID</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.elibrary_id }}</span>
+              </div>
+            </div>
+
+            <div class="profile-preview__section" v-if="profilePreview.profile.website || profilePreview.profile.bio">
+              <div class="profile-preview__pair" v-if="profilePreview.profile.website">
+                <span class="profile-preview__label">Сайт</span>
+                <span class="profile-preview__value">
+                  <a :href="profilePreview.profile.website" target="_blank" rel="noopener">{{ profilePreview.profile.website }}</a>
+                </span>
+              </div>
+              <div class="profile-preview__pair" v-if="profilePreview.profile.bio">
+                <span class="profile-preview__label">О себе</span>
+                <span class="profile-preview__value">{{ profilePreview.profile.bio }}</span>
+              </div>
+            </div>
+
+            <div class="profile-preview__section" v-if="(profilePreview.profile.roles || []).length">
+              <div class="profile-preview__label">Назначенные роли</div>
+              <div class="d-flex flex-wrap gap-2">
+                <span
+                  v-for="role in profilePreview.profile.roles"
+                  :key="role.id || role.code || role.name"
+                  class="badge rounded-pill text-bg-light text-muted"
+                >
+                  {{ role.name || role.code }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="text-muted small py-3">
+            Профиль недоступен.
           </div>
         </div>
       </div>
@@ -526,9 +698,10 @@ import { useRouter } from 'vue-router';
 import { useToast } from 'vue-toastification';
 import { Modal } from 'bootstrap';
 
-import { sciencePublishingAPI } from '@/modules/science-publishing/js/science-publishing.js';
+import { sciencePublishingAPI } from '@/modules/science_publishing/client/js/science-publishing.js';
+import { createChatSocket } from '@/modules/science_publishing/client/js/chat-socket.js';
 import { apiClient } from '@/js/api/manager.js';
-import { useScienceAccess } from '@/modules/science-publishing/js/access.js';
+import { useScienceAccess } from '@/modules/science_publishing/client/js/access.js';
 
 const router = useRouter();
 const toast = useToast();
@@ -598,11 +771,16 @@ const profileLoading = ref(true);
 const allowedRoles = ['editor', 'chief_editor', 'administrator'];
 function normalizeId(value) {
   if (value === null || value === undefined) return null;
-  if (typeof value === 'number' || typeof value === 'string') return value;
   if (typeof value === 'object') {
-    return value.id || value.user_id || value.user || null;
+    const nested = value.id ?? value.user_id ?? value.user;
+    if (nested !== undefined && nested !== null) {
+      return normalizeId(nested);
+    }
+    return null;
   }
-  return null;
+  if (typeof value === 'number') return String(value);
+  const num = Number(value);
+  return Number.isNaN(num) ? String(value) : String(num);
 }
 
 const currentUserId = computed(() => normalizeId(profile.value?.user) ?? normalizeId(profile.value?.user_id));
@@ -668,6 +846,48 @@ const isCurrentEditor = computed(() => {
 
 const detailScrollRef = ref(null);
 let detailRefreshTimer = null;
+let chatSocket = null;
+const pendingSendTimers = {};
+const PENDING_STORE_PREFIX = 'sp_pending_messages';
+const PENDING_FAIL_AFTER_MS = 30000;
+const PENDING_STALE_MS = 5 * 60 * 1000;
+const SERVER_DUPLICATE_WINDOW_MS = 1500;
+
+function messageKey(message) {
+  if (!message) return '';
+  if (message?.metadata?.temp_id) return `temp:${message.metadata.temp_id}`;
+  if (message?.id) return String(message.id);
+  const author = normalizeId(message.author) || normalizeId(message.author_user_id) || 'unknown';
+  const content = String(message.content || '').trim();
+  return `content:${author}:${content}`;
+}
+
+function upsertMessages(existing, incomingList) {
+  const map = new Map();
+  const all = [...existing, ...incomingList];
+  for (const msg of all) {
+    const key = messageKey(msg);
+    if (!key) continue;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, msg);
+      continue;
+    }
+    if (prev.pending_status && !msg.pending_status) {
+      map.set(key, msg);
+      continue;
+    }
+    if (!prev.pending_status && msg.pending_status) {
+      continue;
+    }
+    const prevDate = new Date(prev.created_at || 0).getTime();
+    const msgDate = new Date(msg.created_at || 0).getTime();
+    if (msgDate >= prevDate) {
+      map.set(key, msg);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0));
+}
 
 const detailState = reactive({
   open: false,
@@ -681,6 +901,51 @@ const detailState = reactive({
   messageLoading: false,
   activeTab: 'chat',
   attachmentQuery: '',
+});
+const profilePreview = reactive({
+  open: false,
+  loading: false,
+  error: '',
+  profile: null,
+  username: '',
+});
+const profilePreviewTitle = computed(() => {
+  const raw = profilePreview.profile?.display_name || profilePreview.username || 'Профиль пользователя';
+  if (raw && /^\d+$/.test(String(raw).trim())) {
+    return 'Профиль пользователя';
+  }
+  return raw || 'Профиль пользователя';
+});
+const floatingDayKey = ref('');
+const floatingDateLabel = computed(() => (floatingDayKey.value ? formatDateLabel(floatingDayKey.value) || '' : ''));
+const firstChatDayKey = computed(() => chatItems.value.find((item) => item.type === 'date')?.dayKey || '');
+const chatThreadRef = ref(null);
+const chatInitialScrollDone = ref(false);
+
+const chatItems = computed(() => {
+  const list = Array.isArray(detailState.chatMessages) ? detailState.chatMessages : [];
+  const result = [];
+  let lastDay = null;
+  list.forEach((message, idx) => {
+    const dayKey = formatDayKey(message.created_at);
+    const label = formatDateLabel(dayKey);
+    if (label && dayKey !== lastDay) {
+      result.push({
+        type: 'date',
+        dayKey,
+        date: label,
+        key: `date-${dayKey}-${idx}`,
+      });
+      lastDay = dayKey;
+    }
+    result.push({
+      type: 'message',
+      message,
+      dayKey,
+      key: message.id || message.created_at || `msg-${idx}`,
+    });
+  });
+  return result;
 });
 
 const assignModalRef = ref(null);
@@ -748,8 +1013,10 @@ watch(
   () => detailState.activeTab,
   async (tab) => {
     if (tab === 'chat') {
+      chatInitialScrollDone.value = false;
       await nextTick();
-      scrollChatToEnd();
+      scrollChatToBottomOnce(true);
+      syncFloatingDateSoon();
     }
   }
 );
@@ -759,7 +1026,7 @@ watch(
   async () => {
     if (detailState.activeTab === 'chat') {
       await nextTick();
-      scrollChatToEnd();
+      syncFloatingDateSoon();
     }
   }
 );
@@ -776,8 +1043,8 @@ const detailAttachments = computed(() => {
       attachment.name ||
       attachment.filename ||
       attachment.original_name ||
-      attachment.url ||
-      attachment.absolute_url ||
+      attachment.label ||
+      extractFileName(url) ||
       'Файл';
     const context = meta.context || '';
     const originLabel = meta.originLabel || 'Комментарий';
@@ -916,20 +1183,123 @@ function workStatusAccentClass(status) {
 function messageAlignmentClass(message) {
   if (!message) return 'chat-entry--neutral';
   if (message.is_system) return 'chat-entry--system';
-  const userId = currentUserId.value;
-  const authorId =
-    normalizeId(message.author_id) ||
-    normalizeId(message.author_user_id) ||
-    normalizeId(message.author) ||
-    normalizeId(message.authorId);
-  if (userId && authorId && String(authorId) === String(userId)) {
+  const userId = normalizeId(currentUserId.value);
+  const senderId = normalizeId(
+    message.sender_id ??
+      message.senderId ??
+      message.author_id ??
+      message.author_user_id ??
+      message.user_id ??
+      message.author?.id ??
+      message.author_user?.id ??
+      message.user?.id ??
+      message.author ??
+      message.author_user ??
+      message.user ??
+      message.authorId
+  );
+  if (userId && senderId && String(senderId) === String(userId)) {
     return 'chat-entry--sender';
   }
   return 'chat-entry--recipient';
 }
 
 function messageAuthorName(message) {
-  return message?.author_display_name || message?.author_username || '—';
+  return message?.author_display_name || message?.author_username || message?.author_name || '—';
+}
+
+function isOwnMessage(message) {
+  if (!message) return false;
+  if (message.is_system) return false;
+  const userId = normalizeId(currentUserId.value);
+  const senderId = normalizeId(
+    message.sender_id ??
+      message.senderId ??
+      message.author_id ??
+      message.author_user_id ??
+      message.user_id ??
+      message.author?.id ??
+      message.author_user?.id ??
+      message.user?.id ??
+      message.author ??
+      message.author_user ??
+      message.user ??
+      message.authorId
+  );
+  return Boolean(userId && senderId && String(senderId) === String(userId));
+}
+
+function showMessageName(message) {
+  return !isOwnMessage(message);
+}
+
+function extractProfileId(message) {
+  return (
+    message?.author_profile_id ||
+    message?.author_profile ||
+    message?.authorProfile ||
+    null
+  );
+}
+
+async function openProfilePreview(message) {
+  if (!message || message.is_system) return;
+  const profileId = extractProfileId(message);
+  const username = message?.author_username || messageAuthorName(message);
+  profilePreview.open = true;
+  profilePreview.loading = true;
+  profilePreview.error = '';
+  profilePreview.profile = null;
+  profilePreview.username = username || '';
+  try {
+    let data = null;
+    if (profileId && authorProfileCache[profileId]?.fullProfile) {
+      data = authorProfileCache[profileId];
+    } else if (profileId) {
+      const response = await sciencePublishingAPI.getProfile(profileId);
+      data = response?.data ?? response;
+      if (data) {
+        authorProfileCache[profileId] = {
+          ...data,
+          userId: data.user,
+          displayName: data.display_name || username || '',
+          fullProfile: true,
+        };
+      }
+    }
+
+    if (!data && username) {
+      const response = await sciencePublishingAPI.listProfiles({ search: username, page_size: 5 });
+      const list = response?.data ?? response;
+      const profiles = Array.isArray(list) ? list : list?.results ?? [];
+      data = profiles.find((item) => (item.user === username) || (item.user?.username === username)) || profiles[0];
+      if (data?.id) {
+        authorProfileCache[data.id] = {
+          ...data,
+          userId: data.user,
+          displayName: data.display_name || username || '',
+          fullProfile: true,
+        };
+      }
+    }
+
+    if (!data) {
+      throw new Error('Профиль не найден.');
+    }
+
+    profilePreview.profile = data;
+  } catch (err) {
+    profilePreview.error = err?.message || 'Не удалось загрузить профиль.';
+  } finally {
+    profilePreview.loading = false;
+  }
+}
+
+function closeProfilePreview() {
+  profilePreview.open = false;
+  profilePreview.loading = false;
+  profilePreview.error = '';
+  profilePreview.profile = null;
 }
 
 function messageHasChanges(message) {
@@ -940,6 +1310,32 @@ function messageHasAttachments(message) {
   return Array.isArray(message?.attachments) && message.attachments.length > 0;
 }
 
+function updateFloatingDate() {
+  const container = chatThreadRef.value;
+  if (!container) return;
+  const items = Array.from(container.querySelectorAll('.chat-entry'));
+  const viewportTop = container.scrollTop + 8;
+  const threshold = viewportTop + container.clientHeight * 0.2;
+  let lastPassedDay = '';
+  let firstVisibleDay = '';
+  for (const el of items) {
+    const day = el.getAttribute('data-chat-day') || '';
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    if (bottom < threshold) {
+      lastPassedDay = day;
+    } else if (!firstVisibleDay) {
+      firstVisibleDay = day;
+    }
+  }
+  floatingDayKey.value = firstVisibleDay || lastPassedDay || '';
+  markVisibleMessagesReadUpToSoon();
+}
+
+function syncFloatingDateSoon() {
+  nextTick(updateFloatingDate);
+}
+
 function formatDateTime(value) {
   if (!value) return '';
   try {
@@ -947,6 +1343,57 @@ function formatDateTime(value) {
   } catch {
     return value;
   }
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatDateLabel(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: 'long',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function formatDayKey(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toISOString().slice(0, 10);
+  } catch {
+    return '';
+  }
+}
+
+function statusSymbol(message) {
+  if (message?.pending_status === 'failed') return '✕';
+  if (message?.pending_status === 'pending') return '';
+  const status = message?.delivery_status || (message?.is_read ? 'read' : null);
+  if (status === 'read') return '✓✓';
+  if (status === 'sent' || status === 'pending') return '✓';
+  return '';
+}
+
+function statusClass(message) {
+  if (message?.pending_status === 'failed') return 'chat-status chat-status--failed';
+  if (message?.pending_status === 'pending') return 'chat-status chat-status--pending';
+  const status = message?.delivery_status || (message?.is_read ? 'read' : null);
+  if (status === 'read') return 'chat-status chat-status--read';
+  if (status === 'sent' || status === 'pending') return 'chat-status chat-status--sent';
+  return 'chat-status';
 }
 
 function formatChangeValue(value) {
@@ -963,6 +1410,17 @@ function formatChangeValue(value) {
     return JSON.stringify(value);
   } catch {
     return String(value);
+  }
+}
+
+function extractFileName(url) {
+  if (!url) return '';
+  try {
+    const decoded = decodeURIComponent(url.toString());
+    const parts = decoded.split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] || '';
+  } catch {
+    return '';
   }
 }
 
@@ -985,6 +1443,271 @@ function changeNew(change) {
   if (!change) return '';
   return change.new ?? change.new_value ?? change.became ?? '';
 }
+
+function pendingStoreKey(workId) {
+  const userId = normalizeId(currentUserId.value) || 'anon';
+  return `${PENDING_STORE_PREFIX}_${workId}_${userId}`;
+}
+
+function savePendingMessages(workId) {
+  if (!workId) return;
+  const pending = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).filter((m) => m.pending_status);
+  try {
+    localStorage.setItem(pendingStoreKey(workId), JSON.stringify(pending));
+  } catch (e) {
+    console.warn('Cannot save pending messages', e);
+  }
+}
+
+function loadPendingMessages(workId) {
+  if (!workId) return [];
+  try {
+    const raw = localStorage.getItem(pendingStoreKey(workId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    const now = Date.now();
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((m) => m && m.pending_status)
+          .map((m) => {
+            const created = new Date(m.created_at || 0).getTime();
+            if (Number.isFinite(created) && now - created > PENDING_STALE_MS) {
+              return { ...m, pending_status: 'failed' };
+            }
+            return m;
+          })
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function removePendingMessage(workId, tempId) {
+  if (!workId) return;
+  detailState.chatMessages = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).filter(
+    (m) => String(m.id) !== String(tempId)
+  );
+  savePendingMessages(workId);
+}
+
+function replacePendingWithServer(workId, tempId, serverMessage) {
+  if (!workId || !tempId || !serverMessage) return;
+  const list = Array.isArray(detailState.chatMessages) ? [...detailState.chatMessages] : [];
+  const idx = list.findIndex((m) => String(m.id) === String(tempId));
+  if (idx !== -1) {
+    list[idx] = { ...serverMessage, pending_status: null };
+    detailState.chatMessages = list.sort(
+      (a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0)
+    );
+    if (pendingSendTimers[tempId]) {
+      clearTimeout(pendingSendTimers[tempId]);
+      delete pendingSendTimers[tempId];
+    }
+    savePendingMessages(workId);
+  }
+}
+
+function startPendingFailTimer(workId, tempId) {
+  if (!tempId) return;
+  if (pendingSendTimers[tempId]) {
+    clearTimeout(pendingSendTimers[tempId]);
+  }
+  pendingSendTimers[tempId] = setTimeout(() => {
+    markPendingFailed(workId, tempId);
+    delete pendingSendTimers[tempId];
+  }, PENDING_FAIL_AFTER_MS);
+}
+
+function markPendingFailed(workId, tempId) {
+  detailState.chatMessages = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).map((m) => {
+    if (String(m.id) === String(tempId)) {
+      return { ...m, pending_status: 'failed' };
+    }
+    return m;
+  });
+  if (pendingSendTimers[tempId]) {
+    clearTimeout(pendingSendTimers[tempId]);
+    delete pendingSendTimers[tempId];
+  }
+  savePendingMessages(workId);
+}
+
+function createPendingMessage(content) {
+  const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const now = new Date().toISOString();
+  return {
+    id: tempId,
+    metadata: { temp_id: tempId },
+    pending_status: 'pending',
+    delivery_status: 'pending',
+    is_system: false,
+    content,
+    created_at: now,
+    author_username: currentUsername.value || 'Вы',
+    author_display_name: currentUsername.value || 'Вы',
+    author_profile_id: currentProfileId.value || null,
+    author: currentUserId.value,
+  };
+}
+
+async function sendPendingMessage(workId, pendingMessage) {
+  if (!workId || !pendingMessage) return;
+  startPendingFailTimer(workId, pendingMessage.id);
+  const payload = {
+    content: pendingMessage.content,
+    metadata: { ...(pendingMessage.metadata || {}), temp_id: pendingMessage.id },
+  };
+  try {
+    const response = await sciencePublishingAPI.postWorkChatMessage(workId, payload);
+    const data = response?.data ?? response;
+    if (data?.id) {
+      replacePendingWithServer(workId, pendingMessage.id, data);
+      return;
+    }
+    replacePendingWithServer(workId, pendingMessage.id, { ...pendingMessage, pending_status: null, delivery_status: 'sent' });
+  } catch (error_) {
+    console.warn('Send message failed', error_);
+    markPendingFailed(workId, pendingMessage.id);
+  }
+}
+
+function handleFailedMessage(message) {
+  if (!message) return;
+  const retry = window.confirm('Повторить отправку сообщения? Нажмите "Отмена", чтобы удалить.');
+  if (retry) {
+    const patched = { ...message, pending_status: 'pending' };
+    detailState.chatMessages = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).map((m) =>
+      String(m.id) === String(message.id) ? patched : m
+    );
+    savePendingMessages(detailState.work?.id);
+    sendPendingMessage(detailState.work?.id, patched);
+  } else {
+    removePendingMessage(detailState.work?.id, message.id);
+  }
+}
+
+function collectUnreadMessageIds() {
+  return (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : [])
+    .filter((m) => !m.is_system && !isOwnMessage(m) && !m.is_read && !m.pending_status)
+    .map((m) => String(m.id));
+}
+
+let markReadTimer = null;
+let markReadUpToTimer = null;
+
+function markMessagesReadSoon() {
+  if (detailState.activeTab !== 'chat' || !detailState.work?.id) return;
+  const ids = collectUnreadMessageIds();
+  if (!ids.length) return;
+  if (markReadTimer) {
+    clearTimeout(markReadTimer);
+  }
+  markReadTimer = setTimeout(async () => {
+    try {
+      await sciencePublishingAPI.markChatMessagesRead(detailState.work.id, ids);
+      detailState.chatMessages = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).map((m) => {
+        if (ids.includes(String(m.id))) {
+          return {
+            ...m,
+            is_read: true,
+            delivery_status: 'read',
+            read_at: m.read_at || new Date().toISOString(),
+            read_by: Array.isArray(m.read_by)
+              ? [...m.read_by, { user_id: currentUserId.value, username: currentUsername.value, read_at: new Date().toISOString() }]
+              : [{ user_id: currentUserId.value, username: currentUsername.value, read_at: new Date().toISOString() }],
+          };
+        }
+        return m;
+      });
+    } catch (error_) {
+      console.warn('mark read failed', error_);
+    } finally {
+      markReadTimer = null;
+    }
+  }, 250);
+}
+
+function findLastVisibleMessageId() {
+  const container = chatThreadRef.value;
+  if (!container) return null;
+  const entries = Array.from(container.querySelectorAll('.chat-entry[data-message-id]'));
+  const viewportTop = container.scrollTop;
+  const viewportBottom = viewportTop + container.clientHeight;
+  let lastVisibleId = null;
+  for (const el of entries) {
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    if (bottom >= viewportTop && top <= viewportBottom) {
+      const msgId = el.getAttribute('data-message-id');
+      const message = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).find(
+        (m) => String(m.id) === String(msgId)
+      );
+      if (message && !message.pending_status && !isOwnMessage(message)) {
+        lastVisibleId = msgId;
+      }
+    }
+  }
+  return lastVisibleId;
+}
+
+function markVisibleMessagesReadUpToSoon() {
+  if (detailState.activeTab !== 'chat' || !detailState.work?.id) return;
+  const lastId = findLastVisibleMessageId();
+  if (!lastId) return;
+  if (markReadUpToTimer) {
+    clearTimeout(markReadUpToTimer);
+  }
+  markReadUpToTimer = setTimeout(async () => {
+    try {
+      await sciencePublishingAPI.markChatMessagesReadUpTo(detailState.work.id, lastId);
+    } catch (error_) {
+      console.warn('mark read up to failed', error_);
+    } finally {
+      markReadUpToTimer = null;
+    }
+  }, 200);
+}
+
+function applyReceiptUpdate(payload) {
+  const ids = (payload?.message_ids || (payload?.id ? [payload.id] : [])).map((x) => String(x));
+  if (!ids.length) return;
+  const readerId = payload.reader_id || payload.recipient_id || null;
+  const readerUsername = payload.reader_username || payload.username || '';
+  const readAt = payload.read_at || new Date().toISOString();
+  detailState.chatMessages = (Array.isArray(detailState.chatMessages) ? detailState.chatMessages : []).map((m) => {
+    if (ids.includes(String(m.id))) {
+      const readBy = Array.isArray(m.read_by) ? [...m.read_by] : [];
+      if (readerId) {
+        const exists = readBy.some((r) => String(r.user_id) === String(readerId));
+        if (!exists) {
+          readBy.push({ user_id: readerId, username: readerUsername, read_at: readAt });
+        }
+      }
+      const isForeignReader =
+        readerId &&
+        String(readerId) !== String(m.author) &&
+        String(readerId) !== String(m.author_user_id);
+      return {
+        ...m,
+        delivery_status: isForeignReader ? 'read' : m.delivery_status,
+        is_read: m.is_read || Boolean(isForeignReader),
+        read_by: readBy,
+        read_at: m.read_at || (isForeignReader ? readAt : m.read_at),
+      };
+    }
+    return m;
+  });
+}
+
+watch(
+  () => detailState.activeTab,
+  (value) => {
+    if (value === 'chat') {
+      markMessagesReadSoon();
+      markVisibleMessagesReadUpToSoon();
+    }
+  }
+);
 
 async function fetchProfile() {
   profileLoading.value = true;
@@ -1064,6 +1787,7 @@ function closeTask() {
   closeAssignModal();
   closeAuthorTaskModal();
   stopDetailAutoRefresh();
+  closeChatSocket();
 }
 
 async function openWork(work) {
@@ -1100,27 +1824,85 @@ async function loadDetailWork(workId) {
   }
 }
 
+function closeChatSocket() {
+  if (chatSocket) {
+    chatSocket.close();
+    chatSocket = null;
+  }
+}
+
+function connectChatSocket(workId) {
+  closeChatSocket();
+  if (!workId) return;
+  chatSocket = createChatSocket(workId, {
+    onMessage: (data) => {
+      if (data?.event === 'receipt') {
+        applyReceiptUpdate(data);
+        return;
+      }
+      if (!data || (data.work && String(data.work) !== String(workId))) return;
+      detailState.chatMessages = upsertMessages(detailState.chatMessages, [data]);
+      if (data?.metadata?.temp_id && pendingSendTimers[data.metadata.temp_id]) {
+        clearTimeout(pendingSendTimers[data.metadata.temp_id]);
+        delete pendingSendTimers[data.metadata.temp_id];
+        savePendingMessages(workId);
+      }
+      syncFloatingDateSoon();
+      if (!isOwnMessage(data) && detailState.activeTab === 'chat') {
+        markMessagesReadSoon();
+      }
+    },
+    onError: () => {
+      // websocket errors are best-effort
+    },
+  });
+}
+
 async function loadWorkChat(workId, options = {}) {
   const { background = false } = options;
   if (!workId) return;
   if (!background) {
     detailState.loading = true;
+    resetChatScrollState();
   }
   detailState.error = '';
   try {
     await loadDetailWork(workId);
     const response = await sciencePublishingAPI.listWorkChatMessages(workId);
     const data = response?.data ?? response;
-    const list = Array.isArray(data) ? data : data?.results ?? [];
-    detailState.chatMessages = list.sort(
-      (a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0)
-    );
+    const baseList = Array.isArray(data) ? data : data?.results ?? [];
+    const pending = loadPendingMessages(workId);
+    const pendingClean = pending.filter((p) => {
+      if (p?.metadata?.temp_id) {
+        const matchedByTemp = baseList.some(
+          (m) => m?.metadata?.temp_id && String(m.metadata.temp_id) === String(p.metadata.temp_id)
+        );
+        if (matchedByTemp) return false;
+      }
+      const content = String(p?.content || '').trim();
+      const authorId = normalizeId(p?.author);
+      const matchedByContent = baseList.some(
+        (m) =>
+          String(m?.content || '').trim() === content &&
+          normalizeId(m?.author) === authorId &&
+          normalizeId(m?.author_user_id) === authorId
+      );
+      return !matchedByContent;
+    });
+    if (pendingClean.length !== pending.length) {
+      savePendingMessages(workId);
+    }
+    detailState.chatMessages = upsertMessages(baseList, pendingClean);
+    connectChatSocket(workId);
+    await nextTick();
+    scrollChatToBottomOnce(true);
     if (!background) {
       detailState.note = '';
       detailState.message = '';
     }
     await nextTick();
-    scrollChatToEnd();
+    syncFloatingDateSoon();
+    markMessagesReadSoon();
   } catch (err) {
     detailState.chatMessages = [];
     detailState.note = '';
@@ -1160,12 +1942,25 @@ function resetDetailTabs() {
   detailState.attachmentQuery = '';
 }
 
-function scrollChatToEnd() {
+function resetChatScrollState() {
+  chatInitialScrollDone.value = false;
+}
+
+function scrollChatToBottomOnce(force = false) {
   if (detailState.activeTab !== 'chat') return;
-  const el = detailScrollRef.value;
-  if (el) {
-    el.scrollTop = el.scrollHeight;
-  }
+  if (chatInitialScrollDone.value && !force) return;
+  const el = chatThreadRef.value;
+  if (!el) return;
+  const doScroll = () => {
+    const target = chatThreadRef.value;
+    if (!target) return;
+    target.scrollTop = target.scrollHeight;
+    chatInitialScrollDone.value = true;
+    markVisibleMessagesReadUpToSoon();
+  };
+  doScroll();
+  requestAnimationFrame(doScroll);
+  setTimeout(doScroll, 50);
 }
 
 function ensureAssignModal() {
@@ -1403,12 +2198,12 @@ async function sendMessage() {
   if (!detailState.work || !detailState.message.trim()) return;
   detailState.messageLoading = true;
   try {
-    await sciencePublishingAPI.postWorkChatMessage(detailState.work.id, { content: detailState.message.trim() });
+    const pending = createPendingMessage(detailState.message.trim());
+    detailState.chatMessages = [...detailState.chatMessages, pending];
+    savePendingMessages(detailState.work.id);
+    scrollChatToBottomOnce(true);
+    sendPendingMessage(detailState.work.id, pending);
     detailState.message = '';
-    await refreshDetail();
-    await nextTick();
-    scrollChatToEnd();
-    toast.success('Сообщение отправлено.');
   } catch (err) {
     toast.error(extractErrorMessage(err, 'Не удалось отправить сообщение.'));
   } finally {
@@ -1428,12 +2223,51 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopDetailAutoRefresh();
+  closeChatSocket();
 });
 </script>
 
 <style scoped>
 .tasks-page .page-subtitle {
   max-width: 640px;
+}
+
+.tasks-page .form-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 0.3rem;
+}
+
+.tasks-page .form-control,
+.tasks-page .form-select {
+  font-size: 1rem;
+  color: #111827;
+}
+
+.tasks-page .form-control::placeholder,
+.tasks-page .form-select::placeholder {
+  color: #6b7280;
+}
+
+.tasks-page .reset-btn {
+  border-radius: 12px;
+  border: 1px solid rgba(224, 49, 49, 0.45);
+  color: #c01e1e;
+  background: rgba(224, 49, 49, 0.1);
+  font-weight: 700;
+  padding: 0.55rem 1rem;
+}
+
+.tasks-page .reset-btn:hover:not(:disabled),
+.tasks-page .reset-btn:focus-visible:not(:disabled) {
+  border-color: rgba(224, 49, 49, 0.65);
+  background: rgba(224, 49, 49, 0.16);
+  color: #a01717;
+}
+
+.tasks-page .reset-btn:disabled {
+  opacity: 0.55;
 }
 
 .task-list {
@@ -1447,6 +2281,13 @@ onUnmounted(() => {
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
+.task-card .card-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #1f2937;
+}
+
 .task-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 0.75rem 1.75rem rgba(15, 23, 42, 0.1);
@@ -1454,6 +2295,11 @@ onUnmounted(() => {
 
 .task-card .card-body {
   padding: 1.5rem;
+}
+
+.task-card .text-muted {
+  color: #4b5563 !important;
+  font-size: 0.98rem;
 }
 
 .task-message p {
@@ -1492,15 +2338,26 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.25rem;
   min-height: 0;
+}
+
+.task-detail__topbar {
+  gap: 0.5rem;
+}
+
+.task-detail__tabs--inline {
+  margin-left: auto;
+  gap: 0.5rem;
 }
 
 .task-detail__content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-right: 0;
 }
 
 .task-detail__empty {
@@ -1539,17 +2396,18 @@ onUnmounted(() => {
 .task-detail__tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0;
+  padding: 0 0.75rem 0;
 }
 
 .task-detail__tab {
-  border: 1px solid var(--bs-border-color-translucent);
-  background: rgba(255, 255, 255, 0.75);
-  border-radius: 999px;
-  padding: 0.5rem 1.25rem;
-  color: rgba(15, 23, 42, 0.65);
-  font-weight: 500;
-  transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 0.9rem 0.9rem 0 0;
+  padding: 0.55rem 1.3rem 0.5rem;
+  color: rgba(15, 23, 42, 0.8);
+  font-weight: 600;
+  transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .task-detail__tab:hover {
@@ -1559,10 +2417,73 @@ onUnmounted(() => {
 }
 
 .task-detail__tab--active {
-  background: var(--bs-primary);
+  background: #e03131;
   color: #fff;
-  border-color: var(--bs-primary);
-  box-shadow: 0 18px 36px -22px rgba(13, 110, 253, 0.6);
+  border-color: #e03131;
+  box-shadow: 0 18px 36px -22px rgba(224, 49, 49, 0.45);
+  position: relative;
+  bottom: -1px;
+}
+
+.task-detail__meta {
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.task-detail__author {
+  font-weight: 700;
+  color: #1f2937;
+  letter-spacing: 0.01em;
+}
+
+.task-action-btn {
+  border-radius: 0.8rem;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  border: 1px solid rgba(224, 49, 49, 0.22);
+  background: linear-gradient(120deg, rgba(224, 49, 49, 0.08), rgba(224, 49, 49, 0.03));
+  color: #a31414;
+  box-shadow: 0 12px 28px -22px rgba(15, 23, 42, 0.28);
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+  text-decoration: none;
+}
+
+.task-action-btn:hover,
+.task-action-btn:focus-visible {
+  background: rgba(224, 49, 49, 0.12);
+  border-color: rgba(224, 49, 49, 0.35);
+  color: #861010;
+  transform: translateY(-1px);
+}
+
+.task-action-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 10px 22px -18px rgba(15, 23, 42, 0.26);
+}
+
+.task-action-btn--accent {
+  background: linear-gradient(120deg, #e03131, #d62a2a);
+  color: #fff;
+  border-color: #d62a2a;
+  box-shadow: 0 16px 36px -20px rgba(224, 49, 49, 0.55);
+}
+
+.task-action-btn--accent:hover,
+.task-action-btn--accent:focus-visible {
+  background: linear-gradient(120deg, #d62828, #c72020);
+  color: #fff;
+  border-color: #c72020;
+}
+
+.task-action-btn--ghost {
+  background: rgba(224, 49, 49, 0.06);
+  color: #a31414;
+}
+
+.task-action-btn:disabled,
+.task-action-btn.disabled {
+  opacity: 0.65;
+  box-shadow: none;
 }
 
 .task-detail__tab-count {
@@ -1579,8 +2500,10 @@ onUnmounted(() => {
 .task-chat {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  padding-bottom: 0.5rem;
+  gap: 0;
+  padding-bottom: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 .task-chat__filter {
@@ -1626,81 +2549,31 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.task-chat__conversation {
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: 1.5rem;
-  position: relative;
-}
-
-.task-chat__timeline {
+.task-chat__frame {
   position: relative;
   display: flex;
-  justify-content: center;
-}
-
-.task-chat__timeline::after {
-  content: "";
-  position: absolute;
-  top: 0.75rem;
-  bottom: -2.5rem;
-  width: 2px;
-  background: rgba(15, 23, 42, 0.08);
-}
-
-.task-chat__conversation:last-child .task-chat__timeline::after {
-  display: none;
-}
-
-.task-chat__dot {
-  display: inline-flex;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  margin-top: 0.25rem;
-  box-shadow: 0 0 0 4px rgba(15, 23, 42, 0.05);
-}
-
-.status-accent--info {
-  background: #0d6efd;
-  box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
-}
-
-.status-accent--progress {
-  background: #f59f00;
-  box-shadow: 0 0 0 4px rgba(245, 159, 0, 0.18);
-}
-
-.status-accent--warning {
-  background: #ffa94d;
-  box-shadow: 0 0 0 4px rgba(255, 169, 77, 0.2);
-}
-
-.status-accent--success {
-  background: #198754;
-  box-shadow: 0 0 0 4px rgba(25, 135, 84, 0.18);
-}
-
-.status-accent--muted {
-  background: #adb5bd;
-  box-shadow: 0 0 0 4px rgba(173, 181, 189, 0.2);
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 1.25rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .task-chat__content {
-  border: 1px solid var(--bs-border-color-translucent);
-  border-radius: 1.25rem;
-  padding: 1.5rem;
+  border: 0;
+  border-radius: 0;
+  padding: 1.25rem 1.5rem 0.35rem;
   background: rgba(255, 255, 255, 0.9);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  box-shadow: 0 32px 80px -48px rgba(15, 23, 42, 0.35);
+  box-shadow: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.task-chat__content:hover {
-  border-color: rgba(13, 110, 253, 0.35);
-  box-shadow: 0 28px 70px -48px rgba(15, 23, 42, 0.45);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .task-chat__header {
@@ -1733,54 +2606,71 @@ onUnmounted(() => {
   border-radius: 999px;
   text-transform: none;
   letter-spacing: 0;
-}
-
-.task-chat__lead {
-  font-size: 0.98rem;
-  line-height: 1.6;
-  color: rgba(15, 23, 42, 0.85);
-  white-space: pre-line;
+  font-weight: 600;
+  background-color: rgba(15, 23, 42, 0.06) !important;
+  color: #374151 !important;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .chat-thread {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.35rem;
+  padding: 0.2rem 0 0.75rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .chat-entry {
   border: 1px solid var(--bs-border-color-translucent);
-  border-radius: 1rem;
-  padding: 1rem 1.25rem;
-  background: rgba(248, 249, 252, 0.9);
+  border-radius: 0.9rem;
+  padding: 0.55rem 0.65rem 0.45rem 0.65rem;
+  background: rgba(248, 249, 252, 0.92);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.25rem;
+  width: fit-content;
+  max-width: 72%;
 }
 
 .chat-entry__heading {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .chat-entry__name {
-  font-weight: 600;
-  color: rgba(15, 23, 42, 0.85);
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-weight: 700;
+  color: var(--bs-primary);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.92rem;
+}
+.chat-entry__name:hover,
+.chat-entry__name:focus {
+  text-decoration: underline;
+  outline: none;
 }
 
 .chat-entry__body {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.3rem;
+  font-size: 0.95rem;
 }
 
 .chat-entry__changes,
 .chat-entry__attachments {
-  padding: 0.75rem 0.9rem;
-  border-radius: 0.85rem;
-  background: rgba(248, 249, 252, 0.75);
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.75rem;
+  background: rgba(248, 249, 252, 0.8);
   border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -1800,9 +2690,9 @@ onUnmounted(() => {
 .chat-entry--sender {
   align-self: flex-end;
   margin-left: auto;
-  border-color: rgba(13, 110, 253, 0.25);
-  background: rgba(13, 110, 253, 0.09);
-  color: rgba(15, 23, 42, 0.85);
+  border-color: rgba(13, 110, 253, 0.2);
+  background: rgba(13, 110, 253, 0.08);
+  color: rgba(15, 23, 42, 0.9);
 }
 
 .chat-entry--recipient,
@@ -1820,10 +2710,131 @@ onUnmounted(() => {
   background: rgba(108, 117, 125, 0.1);
 }
 
+.chat-entry__row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-end;
+}
+
+.chat-entry__text {
+  margin: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+
+.chat-entry__time,
+.chat-entry__time-inline {
+  font-size: 0.78rem;
+  color: rgba(15, 23, 42, 0.6);
+}
+
+.chat-entry__time-inline {
+  white-space: nowrap;
+  margin-left: 0.4rem;
+  align-self: flex-end;
+}
+
+.chat-entry__status {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.chat-status--sent {
+  color: #6c757d;
+}
+
+.chat-status--read {
+  color: #0d6efd;
+}
+
+.chat-status--pending {
+  color: #6c757d;
+}
+
+.chat-status--failed {
+  color: #dc3545;
+}
+
+.btn-status-failed {
+  color: #dc3545;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.btn-status-failed:hover,
+.btn-status-failed:focus {
+  color: #c82333;
+  text-decoration: underline;
+}
+
+.chat-entry__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.1rem;
+}
+
+.chat-date {
+  display: flex;
+  justify-content: center;
+  margin: 0.4rem 0 0.15rem;
+}
+
+.chat-date__pill {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.8);
+  color: #fff;
+  padding: 0.15rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  box-shadow: 0 6px 20px -12px rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.chat-floating-date {
+  --floating-date-offset: 0px; /* регулирует смещение всплывающей даты относительно центра */
+  position: sticky;
+  top: 0.25rem;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  width: 100%;
+  transform: translateZ(0);
+  height: 26px;
+  padding-right: 0;
+}
+
+.chat-date__pill--floating {
+  position: relative;
+  transform: translateX(var(--floating-date-offset));
+}
+
+.chat-date-fade-enter-active,
+.chat-date-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.chat-date-fade-enter-from,
+.chat-date-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
 .task-attachments {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 1.1rem;
+  padding: 1rem 1.1rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 50px -36px rgba(15, 23, 42, 0.25);
 }
 
 .task-attachments__search .form-control {
@@ -1875,6 +2886,7 @@ onUnmounted(() => {
 
 .attachment-card__title {
   font-weight: 600;
+  font-size: 1.08rem;
 }
 
 .attachment-card__link {
@@ -1887,6 +2899,11 @@ onUnmounted(() => {
 
 .attachment-card__context {
   line-height: 1.4;
+  font-size: 1rem;
+}
+
+.attachment-card__meta {
+  font-size: 1rem;
 }
 
 .task-composer .form-control {
@@ -1899,9 +2916,116 @@ onUnmounted(() => {
   border-bottom-left-radius: 0;
 }
 
+.task-composer {
+  border: 0;
+  border-top: 1px solid var(--bs-border-color-translucent);
+  border-radius: 0;
+  padding: 0.45rem 0.55rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: none;
+  margin-top: 0;
+}
+
+.compose-input {
+  resize: vertical;
+  min-height: 18px;
+  max-height: 120px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.85rem;
+  overflow-y: auto;
+  display: block;
+  width: 100%;
+}
+
+.compose-send {
+  white-space: nowrap;
+  min-height: 16px;
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.5rem;
+}
+
+.task-composer .d-flex.flex-column {
+  gap: 0.25rem !important;
+}
+
+.task-composer .flex-md-row {
+  gap: 0.25rem !important;
+}
+
 .task-attachments__dot::before,
 .attachment-card__dot::before {
   content: '';
+}
+
+.profile-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 2rem 1rem;
+  z-index: 1055;
+}
+
+.profile-preview {
+  width: min(90vw, 520px);
+  border: 0;
+  border-radius: 18px;
+  box-shadow: 0 28px 70px -40px rgba(15, 23, 42, 0.35);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.profile-preview__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+}
+
+.profile-preview__title {
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: #1f2937;
+}
+
+.profile-preview__body {
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.profile-preview__section {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 12px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.profile-preview__section .profile-preview__label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.profile-preview__section .profile-preview__value {
+  color: #111827;
+  font-weight: 600;
+}
+
+.profile-preview__pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
 @media (max-width: 767px) {

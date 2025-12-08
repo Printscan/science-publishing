@@ -449,7 +449,7 @@ const submitWork = async () => {
 
   .page-title {
     margin-bottom: 0.25rem;
-    font-size: 1.875rem;
+    font-size: 2.05rem;
     font-weight: 600;
   }
 
@@ -457,6 +457,7 @@ const submitWork = async () => {
     margin: 0;
     color: var(--bs-secondary-color);
     max-width: 640px;
+    font-size: 1.05rem;
   }
 
   .card {
@@ -464,13 +465,15 @@ const submitWork = async () => {
   }
 
   .form-label {
-    font-weight: 600;
+    font-weight: 700;
     color: var(--bs-secondary-color);
+    font-size: 1.2rem;
   }
 
   .form-control,
   .form-select {
     border-radius: 12px;
+    font-size: 1.05rem;
   }
 
   .form-text {
