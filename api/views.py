@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from src.core.utils.mixins import SwaggerSafeMixin
 
-from .models import EditorialRole, Publication, UserProfile, UserProfileRole, Work, WorkChatMessage
+from .models import EditorialRole, Publication, UserProfile, UserProfileRole, Work, WorkChatMessage, WorkChatReceipt
 from .serializers import (
     EditorialRoleSerializer,
     PublicationSerializer,
@@ -17,6 +17,54 @@ from .serializers import (
     WorkSerializer,
     WorkChatMessageSerializer,
 )
+from .realtime import (
+    broadcast_chat_message,
+    broadcast_chat_notification,
+    broadcast_editor_assignment,
+    broadcast_work_published,
+    collect_work_user_ids,
+)
+
+
+def _create_receipts_for_message(message, *, exclude_user_ids=None):
+    """
+    Создаёт квитанции доставки для всех участников работы (кроме автора/исключенных).
+    Возвращает список созданных/существующих квитанций.
+    """
+    exclude_user_ids = set(u for u in (exclude_user_ids or []) if u)
+    recipients = collect_work_user_ids(message.work)
+    author_id = getattr(message.author, 'id', None)
+    if author_id:
+        exclude_user_ids.add(author_id)
+    recipients = [uid for uid in recipients if uid and uid not in exclude_user_ids]
+    if recipients:
+        WorkChatReceipt.objects.bulk_create(
+            [WorkChatReceipt(message=message, recipient_id=uid) for uid in recipients],
+            ignore_conflicts=True,
+        )
+    qs = WorkChatReceipt.objects.filter(message=message).select_related('recipient')
+    receipts = list(qs)
+    message._prefetched_receipts = receipts
+    return receipts
+
+
+def _ensure_user_receipts(messages_qs, user):
+    """
+    Гарантирует наличие квитанций для текущего пользователя по переданным сообщениям.
+    Нужно для старых сообщений, созданных до появления WorkChatReceipt.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return
+    message_ids = list(
+        messages_qs.exclude(receipts__recipient=user)
+        .values_list('id', flat=True)
+    )
+    if not message_ids:
+        return
+    WorkChatReceipt.objects.bulk_create(
+        [WorkChatReceipt(message_id=mid, recipient=user) for mid in message_ids],
+        ignore_conflicts=True,
+    )
 
 
 class EditorialRoleViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
@@ -312,13 +360,17 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
             return None
         if not content and not metadata:
             return None
-        return WorkChatMessage.objects.create(
+        message = WorkChatMessage.objects.create(
             work=work,
             author=author,
             content=content or '',
             metadata=metadata or {},
             is_system=is_system,
         )
+        _create_receipts_for_message(message, exclude_user_ids=[getattr(author, 'id', None)])
+        broadcast_chat_message(message)
+        broadcast_chat_notification(message, skip_user_ids=[getattr(author, 'id', None)])
+        return message
 
     def _notify_chief_editors_about_new_work(self, work, sender=None, message=None):
         title = self._work_title(work)
@@ -540,6 +592,7 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
                 is_system=False,
             )
 
+        broadcast_work_published(work, note=note or 'Работа опубликована.')
         publication = self._finalize_publication_and_remove_work(work, note=note, actor=request.user)
         serializer = PublicationSerializer(publication, context={'request': request})
         return Response(serializer.data)
@@ -660,9 +713,10 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
             messages = (
                 WorkChatMessage.objects.filter(work=work)
                 .select_related('author', 'author__science_publishing_profile')
-                .prefetch_related('author__science_publishing_profile__roles')
+                .prefetch_related('author__science_publishing_profile__roles', 'receipts__recipient')
                 .order_by('created_at')
             )
+            _ensure_user_receipts(messages, request.user)
             serializer = WorkChatMessageSerializer(messages, many=True, context={'request': request})
             return Response(serializer.data)
 
@@ -679,8 +733,127 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
             metadata=metadata,
             is_system=False,
         )
+        broadcast_chat_message(message)
+        _create_receipts_for_message(message, exclude_user_ids=[request.user.id if request.user.is_authenticated else None])
+        broadcast_chat_notification(message, skip_user_ids=[request.user.id if request.user.is_authenticated else None])
         serializer = WorkChatMessageSerializer(message, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='chat/mark-read')
+    def mark_chat_read(self, request, pk=None):
+        """Помечает сообщения по работе как прочитанные текущим пользователем."""
+        if self.is_swagger_fake_view():
+            return Response({})
+        work = self.get_object()
+        if not self._can_access_chat(request.user, work):
+            raise PermissionDenied('Недостаточно прав для переписки.')
+
+        ids = request.data.get('message_ids') or request.data.get('ids') or []
+        if not isinstance(ids, (list, tuple)):
+            raise ValidationError({'message_ids': 'Ожидается список идентификаторов.'})
+        ids = [str(i) for i in ids if i]
+        if not ids:
+            return Response({'updated': 0})
+
+        # гарантируем, что квитанции существуют (важно для старых сообщений)
+        missing_ids = WorkChatMessage.objects.filter(work=work, id__in=ids).exclude(
+            receipts__recipient=request.user
+        ).values_list('id', flat=True)
+        WorkChatReceipt.objects.bulk_create(
+            [WorkChatReceipt(message_id=mid, recipient=request.user) for mid in missing_ids],
+            ignore_conflicts=True,
+        )
+
+        receipts_qs = WorkChatReceipt.objects.filter(message__work=work, recipient=request.user, message_id__in=ids)
+        updated = receipts_qs.filter(read_at__isnull=True).update(read_at=timezone.now())
+        if updated:
+            # сообщаем в чат-канал о прочтении
+            read_at = timezone.now().isoformat()
+            payload = {
+                'message_ids': ids,
+                'reader_id': request.user.id,
+                'reader_username': request.user.username,
+                'read_at': read_at,
+            }
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            layer = get_channel_layer()
+            if layer:
+                async_to_sync(layer.group_send)(
+                    f'science_publishing_chat_{work.id}',
+                    {
+                        'type': 'chat.receipt',
+                        'payload': payload,
+                    },
+                )
+        return Response({'updated': updated})
+
+    @action(detail=True, methods=['post'], url_path='chat/mark-read-up-to')
+    def mark_chat_read_up_to(self, request, pk=None):
+        """
+        Помечает как прочитанные все сообщения по работе до указанного message_id (включительно).
+        Удобно для front, когда видна часть ленты и нужно прочитать одним вызовом.
+        """
+        if self.is_swagger_fake_view():
+            return Response({})
+        work = self.get_object()
+        if not self._can_access_chat(request.user, work):
+            raise PermissionDenied('Недостаточно прав для переписки.')
+
+        message_id = request.data.get('message_id') or request.data.get('last_id')
+        if not message_id:
+            raise ValidationError({'message_id': 'Обязательное поле.'})
+
+        # Игнорируем временные client-id (pending), чтобы не падать по UUID
+        try:
+            anchor = WorkChatMessage.objects.get(work=work, id=message_id)
+        except (WorkChatMessage.DoesNotExist, ValueError, ValidationError):
+            return Response({'updated': 0, 'skipped': True})
+
+        # Найдём все сообщения до него по времени; на случай одинаковых created_at включаем id.
+        target_ids = list(
+            WorkChatMessage.objects.filter(
+                work=work,
+                created_at__lt=anchor.created_at,
+            ).values_list('id', flat=True)
+        )
+        target_ids.append(str(anchor.id))
+        if not target_ids:
+            return Response({'updated': 0})
+
+        missing_ids = WorkChatMessage.objects.filter(work=work, id__in=target_ids).exclude(
+            receipts__recipient=request.user
+        ).values_list('id', flat=True)
+        WorkChatReceipt.objects.bulk_create(
+            [WorkChatReceipt(message_id=mid, recipient=request.user) for mid in missing_ids],
+            ignore_conflicts=True,
+        )
+
+        receipts_qs = WorkChatReceipt.objects.filter(message__work=work, recipient=request.user, message_id__in=target_ids)
+        updated = receipts_qs.filter(read_at__isnull=True).update(read_at=timezone.now())
+        if updated:
+            read_at = timezone.now().isoformat()
+            payload = {
+                'message_ids': [str(tid) for tid in target_ids],
+                'reader_id': request.user.id,
+                'reader_username': request.user.username,
+                'read_at': read_at,
+            }
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            layer = get_channel_layer()
+            if layer:
+                async_to_sync(layer.group_send)(
+                    f'science_publishing_chat_{work.id}',
+                    {
+                        'type': 'chat.receipt',
+                        'payload': payload,
+                    },
+                )
+
+        return Response({'updated': updated, 'message_ids': target_ids})
 
     @action(detail=True, methods=['post'], url_path='assign-editor')
     def assign_editor(self, request, pk=None):
@@ -728,6 +901,7 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
                 message or default_note,
                 metadata=metadata,
             )
+        broadcast_editor_assignment(work, editor_profile, note=message or default_note)
 
         serializer = self.get_serializer(work)
         return Response(serializer.data)
@@ -875,6 +1049,7 @@ class WorkViewSet(SwaggerSafeMixin, viewsets.ModelViewSet):
                 },
             )
 
+        broadcast_work_published(work, note=note or 'Работа опубликована.')
         publication = self._finalize_publication_and_remove_work(work, note=note, actor=request.user)
         serializer = PublicationSerializer(publication, context={'request': request})
         return Response(serializer.data)
@@ -913,25 +1088,8 @@ class PublicationViewSet(SwaggerSafeMixin, viewsets.ReadOnlyModelViewSet):
         base_queryset = super().get_queryset()
         if self.is_swagger_fake_view():
             return base_queryset.none()
-        user = self.request.user
-        if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
-            return self.get_safe_queryset(base_queryset)
-        try:
-            profile = user.science_publishing_profile
-        except UserProfile.DoesNotExist:
-            return base_queryset.none()
-
-        has_privileged_role = profile.roles.filter(
-            code__in=[
-                EditorialRole.Code.ADMINISTRATOR,
-                EditorialRole.Code.CHIEF_EDITOR,
-                EditorialRole.Code.EDITOR,
-            ]
-        ).exists()
-        if has_privileged_role:
-            return self.get_safe_queryset(base_queryset)
-
-        return self.get_safe_queryset(base_queryset.filter(profile__user=user))
+        # Для опубликованных работ показываем весь каталог всем авторизованным пользователям.
+        return self.get_safe_queryset(base_queryset)
 
     @action(detail=True, methods=['post'], url_path='force-publish')
     def force_publish(self, request, pk=None):
@@ -976,6 +1134,7 @@ class PublicationViewSet(SwaggerSafeMixin, viewsets.ReadOnlyModelViewSet):
                 is_system=False,
             )
 
+        broadcast_work_published(work, note=note or 'Работа опубликована.')
         self._sync_publication_from_work(work)
 
         serializer = self.get_serializer(work)

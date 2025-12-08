@@ -209,8 +209,13 @@ class WorkChatMessageSerializer(serializers.ModelSerializer):
     author_display_name = serializers.SerializerMethodField()
     author_status = serializers.SerializerMethodField()
     author_roles = serializers.SerializerMethodField()
+    author_profile_id = serializers.SerializerMethodField()
     changes = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
+    delivery_status = serializers.SerializerMethodField()
+    read_at = serializers.SerializerMethodField()
+    read_by = serializers.SerializerMethodField()
+    is_read = serializers.SerializerMethodField()
 
     class Meta:
         model = WorkChatMessage
@@ -220,6 +225,7 @@ class WorkChatMessageSerializer(serializers.ModelSerializer):
             'author',
             'author_username',
             'author_display_name',
+            'author_profile_id',
             'author_status',
             'author_roles',
             'content',
@@ -227,6 +233,10 @@ class WorkChatMessageSerializer(serializers.ModelSerializer):
             'changes',
             'attachments',
             'is_system',
+            'delivery_status',
+            'read_at',
+            'read_by',
+            'is_read',
             'created_at',
         )
         read_only_fields = (
@@ -234,6 +244,7 @@ class WorkChatMessageSerializer(serializers.ModelSerializer):
             'created_at',
             'author_username',
             'author_display_name',
+            'author_profile_id',
             'author_status',
             'author_roles',
             'changes',
@@ -253,6 +264,10 @@ class WorkChatMessageSerializer(serializers.ModelSerializer):
             return profile.display_name or obj.author.get_full_name() or obj.author.username
         return obj.author.get_full_name() or obj.author.username
 
+    def get_author_profile_id(self, obj):
+        profile = getattr(obj.author, 'science_publishing_profile', None)
+        return getattr(profile, 'id', None)
+
     def get_author_roles(self, obj):
         cached = getattr(obj, '_cached_author_roles', None)
         if cached is not None:
@@ -271,6 +286,72 @@ class WorkChatMessageSerializer(serializers.ModelSerializer):
         result = [{'code': role.code, 'name': role.name} for role in roles]
         obj._cached_author_roles = result
         return result
+
+    def _get_receipts(self, obj):
+        receipts = getattr(obj, '_prefetched_receipts', None)
+        if receipts is not None:
+            return receipts
+        return list(obj.receipts.select_related('recipient'))
+
+    def get_delivery_status(self, obj):
+        """
+        Telegram-like ticks:
+        - 'sent' (1 галка) если доставлено (есть квитанция)
+        - 'read' (2 галки) если хоть кто-то прочитал (для автора) или текущий получатель прочитал (для получателя)
+        """
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        receipts = self._get_receipts(obj)
+        if not receipts:
+            return 'pending'
+        # если отправитель смотрит
+        if user and getattr(user, 'id', None) == getattr(obj.author, 'id', None):
+            if any(r.read_at for r in receipts):
+                return 'read'
+            return 'sent'
+
+        if user:
+            for r in receipts:
+                if r.recipient_id == user.id:
+                    return 'read' if r.read_at else 'sent'
+        # по умолчанию, если квитанции есть
+        return 'sent'
+
+    def get_read_at(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user:
+            return None
+        receipts = self._get_receipts(obj)
+        for r in receipts:
+            if r.recipient_id == user.id and r.read_at:
+                return r.read_at
+        return None
+
+    def get_read_by(self, obj):
+        receipts = self._get_receipts(obj)
+        readers = []
+        for r in receipts:
+            if r.read_at:
+                readers.append(
+                    {
+                        'user_id': r.recipient_id,
+                        'username': getattr(r.recipient, 'username', None),
+                        'read_at': r.read_at,
+                    }
+                )
+        return readers
+
+    def get_is_read(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user:
+            return False
+        receipts = self._get_receipts(obj)
+        for r in receipts:
+            if r.recipient_id == user.id and r.read_at:
+                return True
+        return False
 
     def get_author_status(self, obj):
         roles = self.get_author_roles(obj)

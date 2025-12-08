@@ -139,6 +139,17 @@ class SciencePublishingAPI {
     return apiClient.get(`${this.base.works}${workId}/chat/`);
   }
 
+  async markChatMessagesRead(workId, messageIds = []) {
+    if (!workId) throw new Error('workId is required');
+    return apiClient.post(`${this.base.works}${workId}/chat/mark-read/`, { message_ids: messageIds });
+  }
+
+  async markChatMessagesReadUpTo(workId, messageId) {
+    if (!workId) throw new Error('workId is required');
+    if (!messageId) throw new Error('messageId is required');
+    return apiClient.post(`${this.base.works}${workId}/chat/mark-read-up-to/`, { message_id: messageId });
+  }
+
   async postWorkChatMessage(workId, payload = {}) {
     if (!workId) throw new Error('workId is required');
     return apiClient.post(`${this.base.works}${workId}/chat/`, payload);

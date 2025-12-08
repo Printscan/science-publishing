@@ -3,6 +3,7 @@ import uuid
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class EditorialRole(models.Model):
@@ -626,3 +627,51 @@ class WorkChatMessage(models.Model):
 
     def __str__(self) -> str:
         return f'{self.author} → {self.work}'
+
+
+class WorkChatReceipt(models.Model):
+    """Статусы доставки/прочтения сообщения для конкретного получателя."""
+
+    id = models.UUIDField(
+        'Идентификатор',
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    message = models.ForeignKey(
+        WorkChatMessage,
+        on_delete=models.CASCADE,
+        related_name='receipts',
+        verbose_name='Сообщение'
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='science_publishing_chat_receipts',
+        verbose_name='Получатель'
+    )
+    delivered_at = models.DateTimeField(
+        'Доставлено',
+        default=timezone.now
+    )
+    read_at = models.DateTimeField(
+        'Прочитано',
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(
+        'Создано',
+        auto_now_add=True
+    )
+
+    class Meta:
+        verbose_name = 'Статус сообщения'
+        verbose_name_plural = 'Статусы сообщений'
+        unique_together = [('message', 'recipient')]
+        indexes = [
+            models.Index(fields=['recipient', 'read_at']),
+            models.Index(fields=['message', 'recipient']),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.message_id} → {self.recipient_id}'
